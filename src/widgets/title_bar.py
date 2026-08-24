@@ -27,8 +27,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QActionGroup, QKeySequence
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QMenuBar, QPushButton, QWidget
 
-from .. import icons
-from ..theme import Palette, ThemeManager
+import icons
+from theme import Palette, ThemeManager
 
 BAR_HEIGHT = 34
 ICON_SIZE = 11

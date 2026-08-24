@@ -10,9 +10,9 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QFontMetrics, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import QAbstractItemView, QHeaderView, QTreeView, QVBoxLayout, QWidget
 
-from .. import icons
-from ..core.h5_model import DATASET, GROUP, H5Model, NodeInfo
-from ..theme import Palette, ThemeManager
+import icons
+from core.h5_model import DATASET, GROUP, H5Model, NodeInfo
+from theme import Palette, ThemeManager
 
 ICON_SIZE = 15
 NODE_ROLE = Qt.ItemDataRole.UserRole + 1

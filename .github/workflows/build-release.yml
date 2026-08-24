@@ -1,0 +1,145 @@
+name: Build and release
+
+# Builds portable Windows + Linux bundles with PyInstaller (see
+# packaging/README.md for the reasoning), two flavors per OS -- a onedir
+# zip/tarball and a single-file standalone exe/binary -- and, when
+# triggered by a version tag, publishes all four as assets on a new
+# GitHub Release.
+#
+# To cut a release: `git tag v1.2.3 && git push origin v1.2.3`.
+# `workflow_dispatch` also lets you run a build on demand (e.g. from a
+# branch, to sanity-check the build itself) without publishing a release --
+# the release job only runs for an actual `v*` tag push.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write # required for the release job to create a release and upload assets
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-build.txt
+
+      - name: Build with PyInstaller
+        # Builds both targets defined in the spec file: the onedir folder
+        # (dist/H5Viewer/) and the single-file standalone exe
+        # (dist/H5Viewer-standalone.exe) -- see packaging/h5tools.spec for
+        # why both exist.
+        run: pyinstaller packaging/h5tools.spec --noconfirm
+
+      - name: Package onedir build as a zip
+        shell: pwsh
+        run: Compress-Archive -Path dist/H5Viewer/* -DestinationPath H5Viewer-windows-x64.zip
+
+      - name: Rename standalone exe
+        shell: pwsh
+        run: Rename-Item dist/H5Viewer-standalone.exe H5Viewer-windows-x64-standalone.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: H5Viewer-windows-x64
+          path: H5Viewer-windows-x64.zip
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: H5Viewer-windows-x64-standalone
+          path: dist/H5Viewer-windows-x64-standalone.exe
+          if-no-files-found: error
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Linux system libraries QtWebEngine needs
+        # Needed on this build machine too, not just at runtime -- PyInstaller
+        # has to actually import PySide6.QtWebEngineWidgets while analyzing
+        # the app. See requirements.txt / packaging/README.md for background.
+        # libasound2 was renamed libasound2t64 in Ubuntu 24.04's time_t
+        # transition -- try the new name first, fall back to the old one so
+        # this keeps working if ubuntu-latest moves again.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libnss3 libnspr4 libxkbfile1 libxcb-cursor0
+          sudo apt-get install -y libasound2t64 || sudo apt-get install -y libasound2
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-build.txt
+
+      - name: Build with PyInstaller
+        # Builds both targets defined in the spec file: the onedir folder
+        # (dist/H5Viewer/) and the single-file standalone binary
+        # (dist/H5Viewer-standalone) -- see packaging/h5tools.spec for why
+        # both exist.
+        run: pyinstaller packaging/h5tools.spec --noconfirm
+
+      - name: Package onedir build as a tarball
+        run: tar czf H5Viewer-linux-x64.tar.gz -C dist H5Viewer
+
+      - name: Rename and prepare standalone binary
+        # tar (not a bare file) so the executable bit survives download --
+        # GitHub strips permissions from plain uploaded files, and a user
+        # would otherwise have to remember to chmod +x it themselves.
+        run: |
+          mv dist/H5Viewer-standalone H5Viewer-linux-x64-standalone
+          chmod +x H5Viewer-linux-x64-standalone
+          tar czf H5Viewer-linux-x64-standalone.tar.gz H5Viewer-linux-x64-standalone
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: H5Viewer-linux-x64
+          path: H5Viewer-linux-x64.tar.gz
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: H5Viewer-linux-x64-standalone
+          path: H5Viewer-linux-x64-standalone.tar.gz
+          if-no-files-found: error
+
+  release:
+    needs: [build-windows, build-linux]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create GitHub release with all four builds attached
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            artifacts/H5Viewer-windows-x64/H5Viewer-windows-x64.zip \
+            artifacts/H5Viewer-windows-x64-standalone/H5Viewer-windows-x64-standalone.exe \
+            artifacts/H5Viewer-linux-x64/H5Viewer-linux-x64.tar.gz \
+            artifacts/H5Viewer-linux-x64-standalone/H5Viewer-linux-x64-standalone.tar.gz \
+            --title "${{ github.ref_name }}" \
+            --generate-notes

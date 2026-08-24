@@ -1,6 +1,6 @@
 import numpy as np
 
-from h5tools_app.core.h5_model import DATASET, GROUP, H5Model, build_column_layout, read_rows
+from core.h5_model import DATASET, GROUP, H5Model, build_column_layout, read_rows
 
 
 def test_list_children_root_groups_before_datasets(sample_h5_path):

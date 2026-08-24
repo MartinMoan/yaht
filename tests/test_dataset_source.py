@@ -4,8 +4,8 @@ import h5py
 import numpy as np
 import pytest
 
-from h5tools_app.core.dataset_source import DatasetSource
-from h5tools_app.core.h5_model import build_column_layout
+from core.dataset_source import DatasetSource
+from core.h5_model import build_column_layout
 
 
 def _wait_until(predicate, timeout=5.0, interval=0.01):

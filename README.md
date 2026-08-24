@@ -99,7 +99,7 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-The test suite exercises the h5py-facing logic in `h5tools_app.core`
+The test suite exercises the h5py-facing logic in `core`
 (tree navigation, column layout, threaded/cached row loading) against
 generated temporary `.h5` files — it's UI-framework-agnostic and doesn't
 drive the GUI itself, which is why it survived the Tk → Qt rewrite
@@ -109,7 +109,7 @@ unchanged.
 
 ```
 run.py                          entry point: python run.py [file.h5]
-src/h5tools_app/
+src/
   app.py                        main window + frameless window chrome
   theme.py                      Fusion style, QPalette, light/dark detection
   constants.py                  sizing + column color palette

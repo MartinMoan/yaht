@@ -10,9 +10,9 @@ from typing import Callable, Optional
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
-from .. import icons
-from ..core.h5_model import GROUP, H5Model, NodeInfo
-from ..theme import Palette, ThemeManager
+import icons
+from core.h5_model import GROUP, H5Model, NodeInfo
+from theme import Palette, ThemeManager
 from .hierarchy_tree import _shape_summary
 
 ICON_SIZE = 17

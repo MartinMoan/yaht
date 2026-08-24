@@ -6,7 +6,16 @@ supported:
   module and turned into extra Plotly trace dicts (plain cartesian lon/
   lat line/fill traces, not ``scattergeo`` -- see
   ``core/plotting.build_map_plotly_spec`` for why), e.g. a coastline or
-  reference boundary. No image involved.
+  reference boundary. No image involved. Coordinates are assumed to be
+  plain WGS84 lon/lat degrees (the GeoJSON default) unless the file's
+  legacy ``"crs"`` member names a UTM zone (EPSG:326xx/327xx/258xx --
+  the projected, metric coordinate system many national mapping
+  agencies, e.g. Norway's Kartverket, export in by default), which is
+  converted to lon/lat via a closed-form inverse transverse-Mercator
+  formula (see ``_utm_to_lonlat``). Any other declared CRS raises a
+  clear error rather than silently misplacing every coordinate --
+  reprojecting to EPSG:4326 in QGIS/ogr2ogr first is the fallback, same
+  as for anything else genuinely out of scope here.
 * Raster (``.png``/``.jpg``/``.jpeg``/``.tif``/``.tiff``) -- a plain
   image, georeferenced either by a sidecar "world file"
   (``.pgw``/``.jgw``/``.tfw``/``.wld`` -- a 6-line affine transform, the
@@ -29,11 +38,18 @@ from __future__ import annotations
 import base64
 import io
 import json
+import math
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from PIL import Image
+
+# A safety cap on individual geometries surviving crop_vector_to_view's
+# bounding-box filter, for a pathologically detailed chart even within
+# the padded view -- see the comment where it's used.
+_MAX_VECTOR_GEOMETRIES = 6000
 
 _RASTER_EXTS = {".png", ".jpg", ".jpeg", ".tif", ".tiff"}
 _WORLD_FILE_EXTS = {
@@ -83,9 +99,108 @@ def load_basemap(path: str) -> BasemapResult:
     )
 
 
+def _epsg_code_from_crs(crs: Optional[dict]) -> Optional[int]:
+    if not crs:
+        return None
+    name = crs.get("properties", {}).get("name", "")
+    if not name:
+        return None
+    if "CRS84" in name.upper():
+        return 4326
+    if "EPSG" not in name.upper():
+        return None
+    # Handles both the plain "EPSG:25832" form and the URN form this
+    # legacy GeoJSON "crs" member commonly uses, e.g.
+    # "urn:ogc:def:crs:EPSG::25832" (or, with a version segment,
+    # "urn:ogc:def:crs:EPSG:8.9:25832") -- the EPSG code is always the
+    # trailing digit run either way.
+    match = re.search(r"(\d+)\s*$", name)
+    return int(match.group(1)) if match else None
+
+
+def _utm_zone_from_epsg(epsg: int) -> Optional[tuple]:
+    if 32601 <= epsg <= 32660:
+        return epsg - 32600, True  # WGS84 / UTM zone N, northern hemisphere
+    if 32701 <= epsg <= 32760:
+        return epsg - 32700, False  # WGS84 / UTM zone N, southern hemisphere
+    if 25828 <= epsg <= 25838:
+        return epsg - 25800, True  # ETRS89 / UTM zone N -- covers Europe, always northern
+    return None
+
+
+def _utm_to_lonlat(easting: float, northing: float, zone: int, northern: bool) -> tuple:
+    """Closed-form inverse transverse Mercator (Snyder's standard UTM
+    formulas), using WGS84/GRS80 ellipsoid constants -- the two datums
+    differ by sub-millimeters, irrelevant at basemap-display precision.
+    A real, well-established formula rather than an approximation, and
+    the reason UTM specifically is supported without pulling in pyproj/
+    GDAL: it's the one non-degrees CRS common enough (national mapping
+    agencies across Europe, the US, etc. routinely export in it) and
+    simple enough in closed form to be worth building in directly.
+    """
+    a = 6378137.0
+    f = 1 / 298.257223563
+    e2 = f * (2 - f)
+    e_prime2 = e2 / (1 - e2)
+    k0 = 0.9996
+
+    x = easting - 500000.0
+    y = northing if northern else northing - 10_000_000.0
+
+    m = y / k0
+    mu = m / (a * (1 - e2 / 4 - 3 * e2**2 / 64 - 5 * e2**3 / 256))
+    e1 = (1 - math.sqrt(1 - e2)) / (1 + math.sqrt(1 - e2))
+
+    phi1 = (
+        mu
+        + (3 * e1 / 2 - 27 * e1**3 / 32) * math.sin(2 * mu)
+        + (21 * e1**2 / 16 - 55 * e1**4 / 32) * math.sin(4 * mu)
+        + (151 * e1**3 / 96) * math.sin(6 * mu)
+        + (1097 * e1**4 / 512) * math.sin(8 * mu)
+    )
+
+    n1 = a / math.sqrt(1 - e2 * math.sin(phi1) ** 2)
+    t1 = math.tan(phi1) ** 2
+    c1 = e_prime2 * math.cos(phi1) ** 2
+    r1 = a * (1 - e2) / (1 - e2 * math.sin(phi1) ** 2) ** 1.5
+    d = x / (n1 * k0)
+
+    lat = phi1 - (n1 * math.tan(phi1) / r1) * (
+        d**2 / 2
+        - (5 + 3 * t1 + 10 * c1 - 4 * c1**2 - 9 * e_prime2) * d**4 / 24
+        + (61 + 90 * t1 + 298 * c1 + 45 * t1**2 - 252 * e_prime2 - 3 * c1**2) * d**6 / 720
+    )
+    lon = (
+        d
+        - (1 + 2 * t1 + c1) * d**3 / 6
+        + (5 - 2 * c1 + 28 * t1 - 3 * c1**2 + 8 * e_prime2 + 24 * t1**2) * d**5 / 120
+    ) / math.cos(phi1)
+
+    central_meridian = math.radians((zone - 1) * 6 - 180 + 3)
+    return math.degrees(lon + central_meridian), math.degrees(lat)
+
+
 def _load_vector(path: str) -> BasemapResult:
     with open(path, "r", encoding="utf-8") as f:
         geojson = json.load(f)
+
+    epsg = _epsg_code_from_crs(geojson.get("crs"))
+    transform: Optional[Callable] = None
+    if epsg is not None and epsg != 4326:
+        zone_info = _utm_zone_from_epsg(epsg)
+        if zone_info is None:
+            raise BasemapError(
+                f"This GeoJSON's coordinates are in EPSG:{epsg}, which isn't supported directly -- "
+                "only plain WGS84 (EPSG:4326) or a UTM zone are. Reproject it to EPSG:4326 first "
+                "(e.g. in QGIS: Layer -> Export -> Save Features As..., set CRS to EPSG:4326; or "
+                f"ogr2ogr -t_srs EPSG:4326 output.geojson input.geojson)."
+            )
+        zone, northern = zone_info
+        transform = lambda x, y: _utm_to_lonlat(x, y, zone, northern)  # noqa: E731
+
+    def _xy(coord: list) -> tuple:
+        x, y = coord[0], coord[1]
+        return transform(x, y) if transform else (x, y)
 
     traces: list = []
 
@@ -93,36 +208,49 @@ def _load_vector(path: str) -> BasemapResult:
         gtype = geometry.get("type")
         coords = geometry.get("coordinates")
         if gtype == "Point":
+            lon, lat = _xy(coords)
             traces.append(
                 {
                     "type": "scatter",
                     "mode": "markers",
-                    "x": [coords[0]],
-                    "y": [coords[1]],
+                    "x": [lon],
+                    "y": [lat],
                     "showlegend": False,
                     "name": "",
                 }
             )
         elif gtype == "LineString":
+            pts = [_xy(c) for c in coords]
             traces.append(
                 {
                     "type": "scatter",
                     "mode": "lines",
-                    "x": [c[0] for c in coords],
-                    "y": [c[1] for c in coords],
+                    "x": [p[0] for p in pts],
+                    "y": [p[1] for p in pts],
                     "showlegend": False,
                     "name": "",
                 }
             )
         elif gtype == "Polygon":
             for ring in coords:
+                pts = [_xy(c) for c in ring]
                 traces.append(
                     {
                         "type": "scatter",
+                        # Outline only, no fill -- a GeoJSON polygon ring
+                        # is already closed (first point == last per the
+                        # spec), so this still reads as a closed shape.
+                        # Filling it solid was the actual bug behind
+                        # "gibberish" real-world renders: a file with
+                        # many overlapping polygons (e.g. bathymetric
+                        # depth-contour bands, or one large sea-surface/
+                        # coverage polygon) each filled opaque in a
+                        # different color piled into an unreadable mess
+                        # -- a basemap should read as background
+                        # geography, not dominate the plot.
                         "mode": "lines",
-                        "fill": "toself",
-                        "x": [c[0] for c in ring],
-                        "y": [c[1] for c in ring],
+                        "x": [p[0] for p in pts],
+                        "y": [p[1] for p in pts],
                         "showlegend": False,
                         "name": "",
                     }
@@ -144,13 +272,25 @@ def _load_vector(path: str) -> BasemapResult:
     return BasemapResult(kind="vector", extra_traces=traces)
 
 
-def crop_vector_to_view(basemap: BasemapResult, lon_range: tuple, lat_range: tuple, pad_frac: float = 0.2) -> list:
+def crop_vector_to_view(
+    basemap: BasemapResult, lon_range: tuple, lat_range: tuple, padding_deg: float = 0.3
+) -> list:
     """Returns just the subset of ``basemap.extra_traces`` whose own
-    bounding box intersects the (padded) lon/lat view -- so a large
-    GeoJSON file (e.g. a whole coastline made of many segments) doesn't
-    get embedded and re-rendered in full on every pan/zoom when the
-    plotted data only covers a small regional area, the same problem
-    ``crop_raster_to_view`` solves for a raster basemap.
+    bounding box intersects the lon/lat view (the plotted data's own
+    bounding box, expanded by a flat ``padding_deg`` in every direction)
+    -- so a large GeoJSON file (e.g. a whole coastline made of many
+    segments) doesn't get embedded and re-rendered in full on every pan/
+    zoom when the plotted data only covers a small regional area, the
+    same problem ``crop_raster_to_view`` solves for a raster basemap.
+
+    ``padding_deg`` is a flat margin, not a fraction of the plotted
+    data's own span -- scaling it relative to the data's span badly
+    under-served a short/small track (e.g. a few hundred meters of GPS
+    log): the margin shrank right along with it, leaving almost nothing
+    of a real coastline/depth-contour file close enough to survive the
+    filter. A flat degrees value gives a consistent, meaningful amount
+    of surrounding map regardless of how small the plotted data is; see
+    ``MapConfig.basemap_padding_deg`` for where the user controls it.
 
     A geometry that only *partially* overlaps the view (e.g. one very
     long segment passing through the region) is kept whole rather than
@@ -161,10 +301,8 @@ def crop_vector_to_view(basemap: BasemapResult, lon_range: tuple, lat_range: tup
     """
     lon_min, lon_max = lon_range
     lat_min, lat_max = lat_range
-    lon_pad = max((lon_max - lon_min) * pad_frac, 0.01)
-    lat_pad = max((lat_max - lat_min) * pad_frac, 0.01)
-    view_lon = (lon_min - lon_pad, lon_max + lon_pad)
-    view_lat = (lat_min - lat_pad, lat_max + lat_pad)
+    view_lon = (lon_min - padding_deg, lon_max + padding_deg)
+    view_lat = (lat_min - padding_deg, lat_max + padding_deg)
 
     kept = []
     for trace in basemap.extra_traces:
@@ -176,7 +314,56 @@ def crop_vector_to_view(basemap: BasemapResult, lon_range: tuple, lat_range: tup
         if max(ys) < view_lat[0] or min(ys) > view_lat[1]:
             continue
         kept.append(trace)
+
+    if len(kept) > _MAX_VECTOR_GEOMETRIES:
+        # A safety net for a pathologically detailed chart (e.g. a dense
+        # hydrographic survey with a generous padding radius) that still
+        # has thousands of individual geometries even after the bounding-
+        # box filter above -- evenly thin them out rather than let the
+        # count grow unbounded. Doesn't reorder anything, so neighboring
+        # geometries (usually spatially related, e.g. adjacent depth-
+        # contour segments) are still dropped somewhat evenly rather than
+        # all from one area.
+        stride = -(-len(kept) // _MAX_VECTOR_GEOMETRIES)  # ceil division
+        kept = kept[::stride]
     return kept
+
+
+def merge_vector_traces(traces: list) -> list:
+    """Consolidates many small per-geometry trace dicts (one per Point/
+    LineString/Polygon-ring, from ``_load_vector`` -- or a
+    ``crop_vector_to_view``-filtered subset of them) into just a
+    handful of traces, one per draw mode ("lines", "markers"), joined
+    with a ``None`` separator between each original geometry so Plotly
+    still draws them as visually distinct disconnected pieces.
+
+    This is what actually fixes slow pan/zoom on a real basemap file,
+    not the crop above: a real chart can easily contain thousands of
+    small geometries (every depth-contour band, every skerry outline),
+    and Plotly's *per-trace* overhead -- a separate SVG path, its own
+    event handlers, its own legend entry -- dominates render cost far
+    more than total point count does. The crop limits how much geometry
+    is included at all; this fixes how expensive that geometry is to
+    draw once it is. Since every vector-basemap trace already shares one
+    plain outline style (see build_map_plotly_spec -- no per-geometry
+    fill or color survives that step anyway), merging them changes
+    nothing about how the map looks, only how many separate objects the
+    browser has to manage.
+    """
+    by_mode: dict = {}
+    for trace in traces:
+        mode = trace.get("mode", "lines")
+        bucket = by_mode.setdefault(mode, {"x": [], "y": []})
+        if bucket["x"]:
+            bucket["x"].append(None)
+            bucket["y"].append(None)
+        bucket["x"].extend(trace["x"])
+        bucket["y"].extend(trace["y"])
+
+    return [
+        {"type": "scatter", "mode": mode, "x": bucket["x"], "y": bucket["y"], "showlegend": False, "name": ""}
+        for mode, bucket in by_mode.items()
+    ]
 
 
 def _load_raster(path: str, ext: str) -> BasemapResult:
@@ -202,16 +389,15 @@ def _load_raster(path: str, ext: str) -> BasemapResult:
 
 
 def crop_raster_to_view(
-    basemap: BasemapResult, lon_range: tuple, lat_range: tuple, pad_frac: float = 0.2
+    basemap: BasemapResult, lon_range: tuple, lat_range: tuple, padding_deg: float = 0.3
 ) -> tuple:
     """Crops ``basemap.image`` down to just the region covering
-    ``lon_range``/``lat_range`` (the data actually being plotted), padded
-    by ``pad_frac`` of that region's own span (or a small slice of the
-    full image's span, whichever is bigger -- so a near-zero-span
-    selection, e.g. a single point, still gets a sensibly-sized crop
-    rather than a sliver), then encodes just that crop to a PNG data
-    URI. Falls back to the whole image if the requested range doesn't
-    overlap it at all.
+    ``lon_range``/``lat_range`` (the data actually being plotted),
+    expanded by a flat ``padding_deg`` margin in every direction (see
+    ``crop_vector_to_view`` for why this is a flat degrees value rather
+    than a fraction of the plotted data's own span), then encodes just
+    that crop to a PNG data URI. Falls back to the whole image if the
+    requested range doesn't overlap it at all.
 
     A basemap file can cover a much larger area than the plotted data
     ever does -- embedding the *whole* file as one Plotly background
@@ -225,12 +411,10 @@ def crop_raster_to_view(
 
     req_lon_min, req_lon_max = lon_range
     req_lat_min, req_lat_max = lat_range
-    lon_pad = max((req_lon_max - req_lon_min) * pad_frac, full_lon_span * 0.02)
-    lat_pad = max((req_lat_max - req_lat_min) * pad_frac, full_lat_span * 0.02)
-    lon_min = max(req_lon_min - lon_pad, basemap.lon_min)
-    lon_max = min(req_lon_max + lon_pad, basemap.lon_max)
-    lat_min = max(req_lat_min - lat_pad, basemap.lat_min)
-    lat_max = min(req_lat_max + lat_pad, basemap.lat_max)
+    lon_min = max(req_lon_min - padding_deg, basemap.lon_min)
+    lon_max = min(req_lon_max + padding_deg, basemap.lon_max)
+    lat_min = max(req_lat_min - padding_deg, basemap.lat_min)
+    lat_max = min(req_lat_max + padding_deg, basemap.lat_max)
 
     width, height = basemap.image.size
     cropped = None

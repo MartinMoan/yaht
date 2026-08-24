@@ -16,9 +16,9 @@ from typing import Optional
 import h5py
 import numpy as np
 
-from .. import constants as c
-from ..theme import Palette
-from .basemap import crop_raster_to_view, crop_vector_to_view, load_basemap
+import constants as c
+from theme import Palette
+from .basemap import crop_raster_to_view, crop_vector_to_view, load_basemap, merge_vector_traces
 from .h5_model import ColumnLayout, read_rows
 
 
@@ -97,6 +97,13 @@ class MapConfig:
     # correction, basemap cropping against a file's own degree-based
     # bounds) only ever has to deal with one unit.
     lat_lon_units: str = "degrees"
+    # How far beyond the plotted data's own lat/lon bounding box (in
+    # degrees, flat in every direction) a basemap file's geometries/image
+    # are cropped to -- see crop_vector_to_view/crop_raster_to_view.
+    # 0.3 is a generous default (tens of km) chosen so even a short GPS
+    # track still shows a properly map-like amount of surrounding
+    # coastline/contours rather than just a sliver hugging the track.
+    basemap_padding_deg: float = 0.3
 
     def columns_used(self) -> list:
         cols = [self.lat_column, self.lon_column]
@@ -522,9 +529,30 @@ def build_map_plotly_spec(labels: list, config: MapConfig, arrays: dict, palette
         # plotted data does, so only the geometries actually near the
         # data get embedded/rendered rather than the entire file.
         if lon.size and lat.size:
-            data = crop_vector_to_view(basemap, (float(lon.min()), float(lon.max())), (float(lat.min()), float(lat.max())))
+            filtered = crop_vector_to_view(
+                basemap,
+                (float(lon.min()), float(lon.max())),
+                (float(lat.min()), float(lat.max())),
+                padding_deg=config.basemap_padding_deg,
+            )
         else:
-            data = list(basemap.extra_traces)
+            filtered = list(basemap.extra_traces)
+        # Collapses potentially thousands of small per-geometry traces
+        # into a couple of merged ones -- see merge_vector_traces for why
+        # this (not the crop above) is what actually fixes slow pan/zoom
+        # on a real, richly-detailed chart file.
+        data = merge_vector_traces(filtered)
+        # One consistent, muted color/width for every basemap geometry --
+        # left to Plotly's own per-trace default coloring, a real-world
+        # file with many geometries (bathymetric depth-contour bands, a
+        # large sea-surface/coverage polygon, etc.) rendered as a rainbow
+        # of distinct colors, each competing for attention rather than
+        # reading as background geography. hoverinfo is off too -- with
+        # potentially hundreds of these, a tooltip on every one is just
+        # noise; the "Track" trace below still shows its own tooltip.
+        for trace in data:
+            trace["line"] = {"color": palette.grid_line, "width": 1}
+            trace["hoverinfo"] = "skip"
     data.append(
         {
             "type": "scatter",
@@ -554,7 +582,7 @@ def build_map_plotly_spec(labels: list, config: MapConfig, arrays: dict, palette
         lon_view = (float(lon.min()), float(lon.max())) if lon.size else (basemap.lon_min, basemap.lon_max)
         lat_view = (float(lat.min()), float(lat.max())) if lat.size else (basemap.lat_min, basemap.lat_max)
         data_uri, img_lon_min, img_lon_max, img_lat_min, img_lat_max = crop_raster_to_view(
-            basemap, lon_view, lat_view
+            basemap, lon_view, lat_view, padding_deg=config.basemap_padding_deg
         )
         layout["images"] = [
             {

@@ -12,20 +12,32 @@ app's hand-drawn icon language.
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 from PySide6.QtCore import QStandardPaths, QUrl, Qt
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
-from .. import constants as c
-from ..core.plotting import MapConfig, build_map_plotly_spec, build_plotly_spec
-from ..theme import Palette, ThemeManager
+import constants as c
+from core.plotting import MapConfig, build_map_plotly_spec, build_plotly_spec
+from theme import Palette, ThemeManager
 from .frameless import FramelessWindowMixin
 from .status_bar import StatusBar
 from .title_bar import BAR_HEIGHT, SimpleTitleBar
 
-ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
+# ``__file__``-relative lookup only works running from source: a frozen
+# build (PyInstaller/Nuitka) collects pure-Python modules into an
+# archive rather than real files on disk, so this package's own
+# directory isn't a meaningful filesystem location anymore. ``datas``/
+# ``--include-data-dir`` in the build config (see packaging/) places the
+# assets folder directly under the frozen bundle's root instead, which
+# sys._MEIPASS (PyInstaller) points at regardless of --onefile/--onedir;
+# Nuitka's onefile mode sets the same attribute for the same reason.
+if getattr(sys, "frozen", False):
+    ASSETS_DIR = Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent)) / "assets"
+else:
+    ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
 
 # Plotly's own modebar is off (see _SKELETON_HTML's custom toolbar
 # instead); scrollZoom on is what makes mouse-wheel zoom work at all --

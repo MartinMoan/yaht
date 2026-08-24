@@ -15,7 +15,7 @@ from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QPalette
 from PySide6.QtWidgets import QApplication
 
-from . import constants as c
+import constants as c
 
 POLL_MS = 1500  # fallback only, used if Qt has no colorSchemeChanged signal
 

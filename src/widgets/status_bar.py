@@ -5,7 +5,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QWidget
 
-from ..theme import Palette, ThemeManager
+from theme import Palette, ThemeManager
 
 
 class StatusBar(QWidget):

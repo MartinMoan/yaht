@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
+    QDoubleSpinBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -36,8 +37,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..core.plotting import ChartType, GraphConfig, MapConfig, SeriesSpec
-from ..theme import Palette, ThemeManager
+from core.plotting import ChartType, GraphConfig, MapConfig, SeriesSpec
+from theme import Palette, ThemeManager
 from .frameless import FramelessWindowMixin
 from .title_bar import BAR_HEIGHT, SimpleTitleBar
 
@@ -146,6 +147,7 @@ class GraphConfigDialog(FramelessWindowMixin, QDialog):
             connect_points=self._connect_points_check.isChecked(),
             basemap_path=self._basemap_path,
             lat_lon_units=self._map_units_combo.currentData(),
+            basemap_padding_deg=self._basemap_padding_spin.value(),
         )
 
     def closeEvent(self, event) -> None:
@@ -363,6 +365,21 @@ class GraphConfigDialog(FramelessWindowMixin, QDialog):
         clear_btn.clicked.connect(self._on_clear_basemap)
         basemap_row.addWidget(clear_btn)
         layout.addLayout(basemap_row)
+
+        padding_row = QHBoxLayout()
+        padding_row.addWidget(QLabel("Basemap padding (degrees)"))
+        self._basemap_padding_spin = QDoubleSpinBox()
+        self._basemap_padding_spin.setRange(0.01, 20.0)
+        self._basemap_padding_spin.setSingleStep(0.1)
+        self._basemap_padding_spin.setValue(0.3)
+        self._basemap_padding_spin.setToolTip(
+            "How far beyond your plotted data's own area to include from the basemap file. "
+            "Larger shows more surrounding context (e.g. more coastline); too large on a very "
+            "large basemap file can slow pan/zoom back down."
+        )
+        padding_row.addWidget(self._basemap_padding_spin)
+        padding_row.addStretch(1)
+        layout.addLayout(padding_row)
 
         layout.addStretch(1)
         return tab

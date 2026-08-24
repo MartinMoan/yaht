@@ -42,9 +42,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import icons
-from ..core.h5_model import DATASET, GROUP, H5Model, NodeInfo
-from ..theme import Palette, ThemeManager
+import icons
+from core.h5_model import DATASET, GROUP, H5Model, NodeInfo
+from theme import Palette, ThemeManager
 from .dataset_table import DatasetTableView
 from .group_panel import GroupPanel
 

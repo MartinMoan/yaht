@@ -33,15 +33,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .constants import APP_NAME
-from .core.h5_model import H5Model, H5ModelError, NodeInfo
-from .theme import Palette, ThemeManager
-from .widgets.dataset_tabs import DatasetTabsView
-from .widgets.file_open_dialog import FileOpenDialog
-from .widgets.frameless import FramelessWindowMixin
-from .widgets.hierarchy_tree import HierarchyTree
-from .widgets.status_bar import StatusBar
-from .widgets.title_bar import BAR_HEIGHT, TitleBar
+from constants import APP_NAME
+from core.h5_model import H5Model, H5ModelError, NodeInfo
+from theme import Palette, ThemeManager
+from widgets.dataset_tabs import DatasetTabsView
+from widgets.file_open_dialog import FileOpenDialog
+from widgets.frameless import FramelessWindowMixin
+from widgets.hierarchy_tree import HierarchyTree
+from widgets.status_bar import StatusBar
+from widgets.title_bar import BAR_HEIGHT, TitleBar
 
 _DEFAULT_W, _DEFAULT_H = 1320, 840
 _MIN_W, _MIN_H = 860, 560

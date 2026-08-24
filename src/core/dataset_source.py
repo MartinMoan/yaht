@@ -22,7 +22,7 @@ from queue import Empty, Queue
 import h5py
 import numpy as np
 
-from ..constants import MAX_CACHED_BLOCKS, ROW_BLOCK_SIZE
+from constants import MAX_CACHED_BLOCKS, ROW_BLOCK_SIZE
 from .h5_model import ColumnLayout, read_rows
 
 # Upper bound on how many not-yet-started block requests we let build up.

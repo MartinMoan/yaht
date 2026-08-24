@@ -8,7 +8,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
-from ..theme import Palette, ThemeManager
+from theme import Palette, ThemeManager
 from .frameless import FramelessWindowMixin
 from .title_bar import BAR_HEIGHT, SimpleTitleBar
 

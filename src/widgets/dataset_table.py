@@ -43,12 +43,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import constants as c
-from .. import icons
-from ..core.dataset_source import DatasetSource
-from ..core.h5_model import ColumnLayout, H5Model
-from ..core.plotting import fetch_columns
-from ..theme import Palette, ThemeManager
+import constants as c
+import icons
+from core.dataset_source import DatasetSource
+from core.h5_model import ColumnLayout, H5Model
+from core.plotting import fetch_columns
+from theme import Palette, ThemeManager
 from .graph_config_dialog import GraphConfigDialog
 
 POLL_MS = 40

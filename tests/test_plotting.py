@@ -3,8 +3,8 @@ import json
 import numpy as np
 import pytest
 
-from h5tools_app.core.h5_model import H5Model
-from h5tools_app.core.plotting import (
+from core.h5_model import H5Model
+from core.plotting import (
     ChartType,
     GraphConfig,
     MapConfig,
@@ -13,7 +13,7 @@ from h5tools_app.core.plotting import (
     build_plotly_spec,
     fetch_columns,
 )
-from h5tools_app.theme import Palette
+from theme import Palette
 
 
 def test_fetch_columns_matches_dataset(sample_h5_path):
@@ -381,6 +381,52 @@ def test_build_map_plotly_spec_with_vector_geojson_basemap(tmp_path):
     assert spec["data"][0]["type"] == "scatter"
     assert spec["data"][1]["type"] == "scatter"
     assert "images" not in spec["layout"]
+
+
+def test_build_map_plotly_spec_vector_basemap_traces_share_one_neutral_style(tmp_path):
+    # Two polygons at the plotted data's location -- without a shared,
+    # explicit style, Plotly would auto-color each one differently and
+    # (previously) fill them solid, which is what made a real-world file
+    # with many overlapping polygons render as an unreadable patchwork.
+    geojson_path = tmp_path / "areas.geojson"
+    geojson_path.write_text(
+        json.dumps(
+            {
+                "type": "FeatureCollection",
+                "features": [
+                    {
+                        "type": "Feature",
+                        "geometry": {
+                            "type": "Polygon",
+                            "coordinates": [[[20.0, 10.0], [20.0, 11.0], [21.0, 11.0], [20.0, 10.0]]],
+                        },
+                    },
+                    {
+                        "type": "Feature",
+                        "geometry": {
+                            "type": "Polygon",
+                            "coordinates": [[[20.2, 10.2], [20.2, 10.8], [20.8, 10.8], [20.2, 10.2]]],
+                        },
+                    },
+                ],
+            }
+        )
+    )
+    palette = _palette()
+    config = MapConfig(lat_column=0, lon_column=1, basemap_path=str(geojson_path))
+    spec = build_map_plotly_spec(["lat", "lon"], config, _map_arrays(), palette)
+    basemap_traces = spec["data"][:-1]  # everything but the trailing "Track" trace
+    # Both polygons collapse into a single merged "lines" trace (see
+    # merge_vector_traces) -- that's the fix for slow pan/zoom on a real
+    # chart with thousands of small geometries, not a regression.
+    assert len(basemap_traces) == 1
+    trace = basemap_traces[0]
+    assert "fill" not in trace
+    assert trace["line"]["color"] == palette.grid_line
+    assert trace["hoverinfo"] == "skip"
+    # A None separator keeps the two original rings visually distinct
+    # within that one merged trace instead of connecting them together.
+    assert None in trace["x"]
 
 
 def test_build_map_plotly_spec_filters_out_far_away_geojson_geometry(tmp_path):

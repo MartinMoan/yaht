@@ -15,7 +15,7 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-from ..constants import MAX_COLUMNS
+from constants import MAX_COLUMNS
 
 GROUP = "group"
 DATASET = "dataset"

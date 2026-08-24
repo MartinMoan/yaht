@@ -4,3 +4,7 @@ __pycache__/
 .pytest_cache/
 *.egg-info/
 .DS_Store
+
+# PyInstaller build output (see packaging/README.md)
+/build/
+/dist/

@@ -33,9 +33,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import icons
-from ..core.h5_model import DATASET, GROUP
-from ..theme import Palette, ThemeManager
+import icons
+from core.h5_model import DATASET, GROUP
+from theme import Palette, ThemeManager
 from .frameless import FramelessWindowMixin
 from .group_panel import _ClickableRow
 from .title_bar import BAR_HEIGHT, SimpleTitleBar
