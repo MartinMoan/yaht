@@ -21,6 +21,67 @@ viewer for HDF5 (`.h5`) files, built with
   lives in the title bar itself (VS Code-style) rather than a separate
   toolbar row; the open file's name shows in the title bar text.
 
+## Quick start
+
+Only prerequisite is Python 3.10+ on `PATH` (get it from
+[python.org](https://www.python.org/downloads/) if you don't have it —
+on Windows, check "Add python.exe to PATH" during install). Then, clone
+or download-and-extract this repository and:
+
+- **Windows:** double-click `run.bat` (or run it from a terminal/PowerShell).
+- **Linux / macOS:** run `./run.sh` from a terminal.
+
+First run creates a virtual environment and installs dependencies
+(takes a minute); every run after that starts straight into the app.
+Pass a file path through to open it directly:
+`./run.sh path/to/data.h5` / `run.bat path/to/data.h5`.
+
+The scripts are just a thin wrapper — nothing hidden — around:
+
+```bash
+python3 -m venv venv
+venv/bin/pip install -r requirements.txt   # venv\Scripts\pip.exe on Windows
+venv/bin/python run.py                     # venv\Scripts\python.exe on Windows
+```
+
+**Linux troubleshooting:** if you see an error like *"could not load the
+Qt platform plugin xcb"* mentioning `libxcb-cursor0`, install it (and Qt
+will generally tell you exactly which package it's missing):
+
+```bash
+sudo apt install libxcb-cursor0     # Debian/Ubuntu/WSL
+sudo dnf install xcb-util-cursor    # Fedora
+```
+
+This is normally already present on a full desktop Linux install (pulled
+in by the desktop environment); it only tends to be missing on minimal/
+headless installs or bare WSL distros without a desktop environment
+installed.
+
+## Download (prebuilt binaries)
+
+If you'd rather not install Python, prebuilt Windows and Linux binaries
+are published on the [Releases page](https://github.com/MartinMoan/yaht/releases)
+for every tagged version. Each release has four assets to choose from:
+
+|          | Recommended (onedir zip/tarball) | Single-file standalone |
+|----------|-----------------------------------|-------------------------|
+| Windows  | `YAHT-windows-x64.zip`            | `YAHT-windows-x64-standalone.exe` |
+| Linux    | `YAHT-linux-x64.tar.gz`           | `YAHT-linux-x64-standalone.tar.gz` |
+
+The onedir build starts faster and is less likely to trip antivirus
+heuristics; the standalone build is a single file, handy for copying to
+another machine (e.g. on a USB drive). See `packaging/README.md` for the
+full tradeoffs.
+
+These binaries are **unsigned**, so Windows SmartScreen will show a
+"Windows protected your PC" warning on first run — expected for any
+unsigned exe, not a sign of anything broken (click "More info" then "Run
+anyway"). Code-signing isn't set up for this project (see
+`packaging/README.md` for why); if that warning is a dealbreaker, the
+"Quick start" above avoids it entirely — running your own freshly-built
+code has nothing for SmartScreen to warn about.
+
 ## Why Qt, and why frameless
 
 This app used to be Tkinter/CustomTkinter. It moved to Qt because the
@@ -63,35 +124,6 @@ plain, dated Fusion dialog. It's still a real `QDialog` though (properly
 parented to the main window), so it doesn't have the stacking/focus bugs
 an unparented Tk `Toplevel` had. Path entry uses Qt's own
 `QCompleter`+`QFileSystemModel` for native type-ahead completion.
-
-## Setup
-
-```bash
-python3 -m venv venv
-source venv/bin/activate        # venv\Scripts\activate on Windows
-pip install -r requirements.txt
-```
-
-**Linux troubleshooting:** if you see an error like *"could not load the
-Qt platform plugin xcb"* mentioning `libxcb-cursor0`, install it (and Qt
-will generally tell you exactly which package it's missing):
-
-```bash
-sudo apt install libxcb-cursor0     # Debian/Ubuntu/WSL
-sudo dnf install xcb-util-cursor    # Fedora
-```
-
-This is normally already present on a full desktop Linux install (pulled
-in by the desktop environment); it only tends to be missing on minimal/
-headless installs or bare WSL distros without a desktop environment
-installed.
-
-## Running
-
-```bash
-python run.py                   # opens with no file loaded; use "Open File…"
-python run.py path/to/data.h5   # opens a file directly
-```
 
 ## Development
 

@@ -61,58 +61,24 @@ Without these, the app itself still starts fine (the graph window fails
 to import gracefully, per its own deferred-import handling), just with
 graphing unavailable.
 
-## Code signing
+## Why the Windows exes aren't code-signed
 
 The Windows exes (`YAHT.exe` inside the onedir bundle, and
-`YAHT-standalone.exe`) are unsigned by default, which triggers a
-Windows SmartScreen "Windows protected your PC" warning on first run for
-every user -- expected for any unsigned binary, not a sign of anything
-actually being broken. `build-release.yml`'s `build-windows` job has a
-signing step built in via [SignPath](https://signpath.io/), which
-offers free code signing for open-source projects through the
-[SignPath Foundation](https://signpath.org/). Only the two YAHT exes
-get signed -- not the bundled third-party Qt/Python DLLs, which don't
-need it and aren't ours to sign.
+`YAHT-standalone.exe`) are unsigned, which triggers a Windows SmartScreen
+"Windows protected your PC" warning on first run -- expected for any
+unsigned binary, not a sign of anything broken (click "More info" then
+"Run anyway"). A paid code-signing certificate was considered and ruled
+out (cost, for a hobby project); [SignPath Foundation](https://signpath.org/)'s
+free signing for open-source projects was also evaluated and specifically
+tried, but their application requires a "Reputation" case (existing
+users, download stats, media coverage, etc.) that a brand-new project
+genuinely doesn't have yet -- not a bar this project could honestly claim
+to clear. Revisit this if the project gains real traction later.
 
-Signing is entirely opt-in and fails safe: every signing step in the
-workflow is gated on the `SIGNPATH_API_TOKEN` repo secret being set, so
-an unconfigured repo just builds unsigned exes exactly as before, no
-workflow failures. To turn it on:
-
-1. **Make the repo public** (Settings > General > Danger Zone > Change
-   visibility) -- SignPath Foundation signs open-source projects, which
-   in practice means a public repo under an OSS license (this repo uses
-   GPLv3, see `../LICENSE`).
-2. **Apply to SignPath Foundation**: <https://signpath.org/apply>. Free,
-   but manual review -- read their terms first. There's no fixed SLA on
-   turnaround, so budget some slack before your first real release if
-   you want it signed.
-3. **Once approved**, in the SignPath dashboard:
-   - Note your **organization ID**.
-   - Create a **project** (a slug, e.g. `yaht`).
-   - Create a **signing policy** (a slug, e.g. `release-signing`) --
-     this is where SignPath's own review/approval rules for release
-     builds live.
-   - Generate an **API token** for a user with submitter permissions.
-4. **Install the SignPath GitHub App** on this repo:
-   <https://github.com/apps/signpath>. This is how SignPath verifies a
-   signing request actually came from a build of your repo, not from
-   someone who merely obtained your API token.
-5. **Add the API token as a repo secret**: Settings > Secrets and
-   variables > Actions > New repository secret, named
-   `SIGNPATH_API_TOKEN`.
-6. **Fill in the three placeholders** at the top of
-   `.github/workflows/build-release.yml` (`SIGNPATH_ORGANIZATION_ID`,
-   `SIGNPATH_PROJECT_SLUG`, `SIGNPATH_SIGNING_POLICY_SLUG`) with the
-   values from step 3. These aren't secret, so they're plain workflow
-   `env:` vars, not repo secrets.
-7. Trigger a build (`workflow_dispatch` or a tag push) and confirm the
-   "Sign onedir exe" / "Sign standalone exe" steps actually ran instead
-   of being skipped.
-
-None of steps 1-4 can be done by an assistant on your behalf -- they
-require your own GitHub/SignPath accounts and identity. Only step 6 is a
-repo file edit.
+In the meantime, the root README's "Quick start" (`run.sh` / `run.bat`)
+is the answer for anyone put off by the SmartScreen warning: running
+your own freshly-built code from source has nothing for SmartScreen to
+warn about in the first place.
 
 ## What's *not* built here (possible future additions, not done now)
 

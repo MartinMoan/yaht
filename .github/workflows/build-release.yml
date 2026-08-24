@@ -21,16 +21,6 @@ permissions:
 
 env:
   PYTHON_VERSION: "3.12"
-  # SignPath code-signing config (see packaging/README.md "Code signing"
-  # section for full setup instructions). TODO: fill these in once your
-  # SignPath Foundation application is approved and you've created a
-  # project + signing policy in the SignPath dashboard. Signing is
-  # skipped entirely (with no build failure) until the SIGNPATH_API_TOKEN
-  # repo secret is set, so it's safe to leave these placeholders in place
-  # until then.
-  SIGNPATH_ORGANIZATION_ID: "TODO-signpath-organization-id"
-  SIGNPATH_PROJECT_SLUG: "yaht"
-  SIGNPATH_SIGNING_POLICY_SLUG: "release-signing"
 
 jobs:
   build-windows:
@@ -53,66 +43,6 @@ jobs:
         # (dist/YAHT-standalone.exe) -- see packaging/yaht.spec for
         # why both exist.
         run: pyinstaller packaging/yaht.spec --noconfirm
-
-      # -- Code signing (SignPath) -----------------------------------
-      # Only the two exes we actually build are signed, not the
-      # third-party Qt/Python DLLs bundled alongside them -- that's what
-      # gives the app a verified publisher identity, which is what
-      # Windows SmartScreen actually cares about. Every step below is a
-      # no-op (skipped, not failed) until SIGNPATH_API_TOKEN is set as a
-      # repo secret, so this is safe to leave in an unconfigured repo.
-      - name: Upload unsigned onedir exe for signing
-        if: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
-        id: upload-unsigned-onedir-exe
-        uses: actions/upload-artifact@v4
-        with:
-          name: unsigned-YAHT-onedir-exe
-          path: dist/YAHT/YAHT.exe
-          if-no-files-found: error
-
-      - name: Sign onedir exe
-        if: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
-        uses: signpath/github-action-submit-signing-request@v2
-        with:
-          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: ${{ env.SIGNPATH_ORGANIZATION_ID }}
-          project-slug: ${{ env.SIGNPATH_PROJECT_SLUG }}
-          signing-policy-slug: ${{ env.SIGNPATH_SIGNING_POLICY_SLUG }}
-          github-artifact-id: ${{ steps.upload-unsigned-onedir-exe.outputs.artifact-id }}
-          wait-for-completion: true
-          output-artifact-directory: signed/onedir
-
-      - name: Replace onedir exe with signed version
-        if: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
-        shell: pwsh
-        run: Copy-Item signed/onedir/YAHT.exe dist/YAHT/YAHT.exe -Force
-
-      - name: Upload unsigned standalone exe for signing
-        if: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
-        id: upload-unsigned-standalone-exe
-        uses: actions/upload-artifact@v4
-        with:
-          name: unsigned-YAHT-standalone-exe
-          path: dist/YAHT-standalone.exe
-          if-no-files-found: error
-
-      - name: Sign standalone exe
-        if: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
-        uses: signpath/github-action-submit-signing-request@v2
-        with:
-          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: ${{ env.SIGNPATH_ORGANIZATION_ID }}
-          project-slug: ${{ env.SIGNPATH_PROJECT_SLUG }}
-          signing-policy-slug: ${{ env.SIGNPATH_SIGNING_POLICY_SLUG }}
-          github-artifact-id: ${{ steps.upload-unsigned-standalone-exe.outputs.artifact-id }}
-          wait-for-completion: true
-          output-artifact-directory: signed/standalone
-
-      - name: Replace standalone exe with signed version
-        if: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
-        shell: pwsh
-        run: Copy-Item signed/standalone/YAHT-standalone.exe dist/YAHT-standalone.exe -Force
-      # -- End code signing --------------------------------------------
 
       - name: Package onedir build as a zip
         shell: pwsh
