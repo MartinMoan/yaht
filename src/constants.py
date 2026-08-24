@@ -6,7 +6,7 @@ to know the palette itself.
 """
 from __future__ import annotations
 
-APP_NAME = "H5 Viewer"
+APP_NAME = "YAHT"
 
 ROW_HEIGHT = 27
 HEADER_HEIGHT = 32

@@ -21,6 +21,16 @@ permissions:
 
 env:
   PYTHON_VERSION: "3.12"
+  # SignPath code-signing config (see packaging/README.md "Code signing"
+  # section for full setup instructions). TODO: fill these in once your
+  # SignPath Foundation application is approved and you've created a
+  # project + signing policy in the SignPath dashboard. Signing is
+  # skipped entirely (with no build failure) until the SIGNPATH_API_TOKEN
+  # repo secret is set, so it's safe to leave these placeholders in place
+  # until then.
+  SIGNPATH_ORGANIZATION_ID: "TODO-signpath-organization-id"
+  SIGNPATH_PROJECT_SLUG: "yaht"
+  SIGNPATH_SIGNING_POLICY_SLUG: "release-signing"
 
 jobs:
   build-windows:
@@ -39,29 +49,89 @@ jobs:
 
       - name: Build with PyInstaller
         # Builds both targets defined in the spec file: the onedir folder
-        # (dist/H5Viewer/) and the single-file standalone exe
-        # (dist/H5Viewer-standalone.exe) -- see packaging/h5tools.spec for
+        # (dist/YAHT/) and the single-file standalone exe
+        # (dist/YAHT-standalone.exe) -- see packaging/yaht.spec for
         # why both exist.
-        run: pyinstaller packaging/h5tools.spec --noconfirm
+        run: pyinstaller packaging/yaht.spec --noconfirm
+
+      # -- Code signing (SignPath) -----------------------------------
+      # Only the two exes we actually build are signed, not the
+      # third-party Qt/Python DLLs bundled alongside them -- that's what
+      # gives the app a verified publisher identity, which is what
+      # Windows SmartScreen actually cares about. Every step below is a
+      # no-op (skipped, not failed) until SIGNPATH_API_TOKEN is set as a
+      # repo secret, so this is safe to leave in an unconfigured repo.
+      - name: Upload unsigned onedir exe for signing
+        if: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
+        id: upload-unsigned-onedir-exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-YAHT-onedir-exe
+          path: dist/YAHT/YAHT.exe
+          if-no-files-found: error
+
+      - name: Sign onedir exe
+        if: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ env.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ env.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ env.SIGNPATH_SIGNING_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.upload-unsigned-onedir-exe.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed/onedir
+
+      - name: Replace onedir exe with signed version
+        if: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
+        shell: pwsh
+        run: Copy-Item signed/onedir/YAHT.exe dist/YAHT/YAHT.exe -Force
+
+      - name: Upload unsigned standalone exe for signing
+        if: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
+        id: upload-unsigned-standalone-exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-YAHT-standalone-exe
+          path: dist/YAHT-standalone.exe
+          if-no-files-found: error
+
+      - name: Sign standalone exe
+        if: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ env.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ env.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ env.SIGNPATH_SIGNING_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.upload-unsigned-standalone-exe.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed/standalone
+
+      - name: Replace standalone exe with signed version
+        if: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
+        shell: pwsh
+        run: Copy-Item signed/standalone/YAHT-standalone.exe dist/YAHT-standalone.exe -Force
+      # -- End code signing --------------------------------------------
 
       - name: Package onedir build as a zip
         shell: pwsh
-        run: Compress-Archive -Path dist/H5Viewer/* -DestinationPath H5Viewer-windows-x64.zip
+        run: Compress-Archive -Path dist/YAHT/* -DestinationPath YAHT-windows-x64.zip
 
       - name: Rename standalone exe
         shell: pwsh
-        run: Rename-Item dist/H5Viewer-standalone.exe H5Viewer-windows-x64-standalone.exe
+        run: Rename-Item dist/YAHT-standalone.exe YAHT-windows-x64-standalone.exe
 
       - uses: actions/upload-artifact@v4
         with:
-          name: H5Viewer-windows-x64
-          path: H5Viewer-windows-x64.zip
+          name: YAHT-windows-x64
+          path: YAHT-windows-x64.zip
           if-no-files-found: error
 
       - uses: actions/upload-artifact@v4
         with:
-          name: H5Viewer-windows-x64-standalone
-          path: dist/H5Viewer-windows-x64-standalone.exe
+          name: YAHT-windows-x64-standalone
+          path: dist/YAHT-windows-x64-standalone.exe
           if-no-files-found: error
 
   build-linux:
@@ -92,33 +162,33 @@ jobs:
 
       - name: Build with PyInstaller
         # Builds both targets defined in the spec file: the onedir folder
-        # (dist/H5Viewer/) and the single-file standalone binary
-        # (dist/H5Viewer-standalone) -- see packaging/h5tools.spec for why
+        # (dist/YAHT/) and the single-file standalone binary
+        # (dist/YAHT-standalone) -- see packaging/yaht.spec for why
         # both exist.
-        run: pyinstaller packaging/h5tools.spec --noconfirm
+        run: pyinstaller packaging/yaht.spec --noconfirm
 
       - name: Package onedir build as a tarball
-        run: tar czf H5Viewer-linux-x64.tar.gz -C dist H5Viewer
+        run: tar czf YAHT-linux-x64.tar.gz -C dist YAHT
 
       - name: Rename and prepare standalone binary
         # tar (not a bare file) so the executable bit survives download --
         # GitHub strips permissions from plain uploaded files, and a user
         # would otherwise have to remember to chmod +x it themselves.
         run: |
-          mv dist/H5Viewer-standalone H5Viewer-linux-x64-standalone
-          chmod +x H5Viewer-linux-x64-standalone
-          tar czf H5Viewer-linux-x64-standalone.tar.gz H5Viewer-linux-x64-standalone
+          mv dist/YAHT-standalone YAHT-linux-x64-standalone
+          chmod +x YAHT-linux-x64-standalone
+          tar czf YAHT-linux-x64-standalone.tar.gz YAHT-linux-x64-standalone
 
       - uses: actions/upload-artifact@v4
         with:
-          name: H5Viewer-linux-x64
-          path: H5Viewer-linux-x64.tar.gz
+          name: YAHT-linux-x64
+          path: YAHT-linux-x64.tar.gz
           if-no-files-found: error
 
       - uses: actions/upload-artifact@v4
         with:
-          name: H5Viewer-linux-x64-standalone
-          path: H5Viewer-linux-x64-standalone.tar.gz
+          name: YAHT-linux-x64-standalone
+          path: YAHT-linux-x64-standalone.tar.gz
           if-no-files-found: error
 
   release:
@@ -137,9 +207,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${{ github.ref_name }}" \
-            artifacts/H5Viewer-windows-x64/H5Viewer-windows-x64.zip \
-            artifacts/H5Viewer-windows-x64-standalone/H5Viewer-windows-x64-standalone.exe \
-            artifacts/H5Viewer-linux-x64/H5Viewer-linux-x64.tar.gz \
-            artifacts/H5Viewer-linux-x64-standalone/H5Viewer-linux-x64-standalone.tar.gz \
+            artifacts/YAHT-windows-x64/YAHT-windows-x64.zip \
+            artifacts/YAHT-windows-x64-standalone/YAHT-windows-x64-standalone.exe \
+            artifacts/YAHT-linux-x64/YAHT-linux-x64.tar.gz \
+            artifacts/YAHT-linux-x64-standalone/YAHT-linux-x64-standalone.tar.gz \
             --title "${{ github.ref_name }}" \
             --generate-notes

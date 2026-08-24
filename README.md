@@ -1,6 +1,7 @@
-# H5 Viewer
+# YAHT
 
-A modern, cross-platform desktop viewer for HDF5 (`.h5`) files, built with
+**Y**et **A**nother **H**df5 **T**ool — a modern, cross-platform desktop
+viewer for HDF5 (`.h5`) files, built with
 [PySide6 (Qt for Python)](https://doc.qt.io/qtforpython-6/) and
 [h5py](https://www.h5py.org/).
 
@@ -160,28 +161,14 @@ either the old Tk version or this one handles.)
 
 ## Building a standalone installer
 
-Not done yet — worth planning for since packaging is a real step, not an
-afterthought:
+Done — see `packaging/README.md` and `.github/workflows/build-release.yml`.
+Windows and Linux builds (each as both a onedir zip/tarball and a
+single-file standalone exe/binary) are produced by PyInstaller and
+published as GitHub Release assets automatically whenever a `v*` tag is
+pushed. macOS isn't built yet.
 
-- **Windows / Linux / macOS**, each needs its *own* build — PyInstaller
-  and Qt's own `pyside6-deploy` (which wraps Nuitka) both produce a
-  platform-native executable, but only for the OS you run them on; there's
-  no reliable cross-compilation path. From this sandbox I can only
-  build/verify the Linux path.
-- A typical flow per OS:
-  - `pip install pyinstaller` then
-    `pyinstaller --windowed --name "H5 Viewer" run.py`, or
-    `pyside6-deploy` (official Qt tool, needs a `pysidedeploy.spec`).
-  - **Windows**: wrap the produced `.exe`/folder with
-    [Inno Setup](https://jrsoftware.org/isinfo.php) or NSIS to get a real
-    installer with Start Menu entries and an uninstaller.
-  - **Linux**: package as an `.AppImage` via `linuxdeploy` +
-    `linuxdeploy-plugin-qt`, or a `.deb`/`.rpm`.
-  - **macOS**: bundle as a `.app`, package as a `.dmg`; distributing
-    outside your own machine needs Apple code signing/notarization
-    (requires an Apple Developer account).
-- The practical way to get all three without owning three machines is a
-  CI matrix (GitHub Actions `windows-latest` / `ubuntu-latest` /
-  `macos-latest` runners, each building and uploading its own installer).
-  This repo isn't a git repository yet, so that's a separate step — happy
-  to set up the workflow file once there's a remote to push it to.
+## License
+
+GPLv3 — see [LICENSE](LICENSE). You're free to use, modify, and
+redistribute this software, including commercially, but any distributed
+derivative work must also be open-sourced under GPLv3.

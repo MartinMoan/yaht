@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Entry point for the H5 Viewer application.
+"""Entry point for YAHT (Yet Another Hdf5 Tool).
 
 Usage:
     python run.py [path/to/file.h5]
