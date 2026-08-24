@@ -5,6 +5,9 @@ __pycache__/
 *.egg-info/
 .DS_Store
 
+# Claude Code local session state -- never meant to be shared/committed
+.claude/
+
 # PyInstaller build output (see packaging/README.md)
 /build/
 /dist/

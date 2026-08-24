@@ -1,14 +1,13 @@
 # Packaging YAHT
 
 Builds a standalone, installable-by-copy bundle for Windows and Linux via
-[PyInstaller](https://pyinstaller.org/). See the repository root README (or
-ask the assistant that set this up) for the full evaluation of *why*
-PyInstaller over Nuitka -- short version: this app's own Python code isn't
-CPU-bound (h5py/numpy/Qt do the heavy lifting in native code already), so
-Nuitka's actual compilation doesn't buy meaningful speed here, and
-PyInstaller has by far the deeper track record specifically with PySide6 +
-QtWebEngine, which is already this codebase's most fragile dependency (see
-the deferred-import fallback in `widgets/dataset_table.py`).
+[PyInstaller](https://pyinstaller.org/), chosen over Nuitka: this app's
+own Python code isn't CPU-bound (h5py/numpy/Qt do the heavy lifting in
+native code already), so Nuitka's actual compilation doesn't buy
+meaningful speed here, and PyInstaller has by far the deeper track
+record specifically with PySide6 + QtWebEngine, which is already this
+codebase's most fragile dependency (see the deferred-import fallback in
+`widgets/dataset_table.py`).
 
 ## Building locally
 
