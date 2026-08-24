@@ -5,58 +5,57 @@ viewer for HDF5 (`.h5`) files, built with
 [PySide6 (Qt for Python)](https://doc.qt.io/qtforpython-6/) and
 [h5py](https://www.h5py.org/).
 
-- Left pane: a VS Code-style explorer over the file's group hierarchy —
-  expand/collapse groups, lazily loading children as you go.
-- Right pane: select a group to see its attributes and contents, or select
-  a dataset to open it as a table.
-- The table view scrolls continuously over the whole dataset (no
-  pagination) while only ever holding a small window of rows in memory —
-  see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for how.
-- Columns are tinted with alternating colors so it's easy to track a
-  column visually while scrolling through a lot of rows.
-- Starts in dark mode by default; System/Light/Dark are available under
-  Settings > Appearance.
-- Frameless window with a custom title bar, consistent across platforms.
-  The File/Settings/Help menu bar lives in the title bar itself
-  (VS Code-style) rather than a separate toolbar row; the open file's
-  name shows in the title bar text.
+<!-- TODO: replace with a real screenshot at docs/screenshot.png -->
+![YAHT screenshot](docs/screenshot.png)
 
 ## Quick start
 
-Only prerequisite is Python 3.10+ on `PATH` (get it from
-[python.org](https://www.python.org/downloads/) if you don't have it —
-on Windows, check "Add python.exe to PATH" during install). Then, clone
-or download-and-extract this repository and:
+### Prerequisites
 
-- **Windows:** double-click `run.bat` (or run it from a terminal/PowerShell).
-- **Linux / macOS:** run `./run.sh` from a terminal.
+- Python 3.10+ on `PATH` — [python.org](https://www.python.org/downloads/)
+  (check "Add python.exe to PATH" during install on Windows).
+- This repository, cloned or downloaded and extracted.
 
-First run creates a virtual environment and installs dependencies
-(takes a minute); every run after that starts straight into the app.
-Pass a file path through to open it directly:
-`./run.sh path/to/data.h5` / `run.bat path/to/data.h5`.
+### Windows
 
-The scripts are just a thin wrapper — nothing hidden — around:
+Double-click `run.bat`.
+
+### Linux
 
 ```bash
-python3 -m venv venv
-venv/bin/pip install -r requirements.txt   # venv\Scripts\pip.exe on Windows
-venv/bin/python run.py                     # venv\Scripts\python.exe on Windows
+./run.sh
 ```
 
-**Linux troubleshooting:** if you see an error like *"could not load the
-Qt platform plugin xcb"* mentioning `libxcb-cursor0`, install it (and Qt
-will generally tell you exactly which package it's missing):
+If this fails with a *"could not load the Qt platform plugin xcb"*
+error mentioning `libxcb-cursor0`, install it:
+`sudo apt install libxcb-cursor0` (Debian/Ubuntu/WSL) or
+`sudo dnf install xcb-util-cursor` (Fedora) — normally only missing on
+minimal/headless installs.
+
+### macOS
 
 ```bash
-sudo apt install libxcb-cursor0     # Debian/Ubuntu/WSL
-sudo dnf install xcb-util-cursor    # Fedora
+./run.sh
 ```
 
-This is normally already present on a full desktop Linux install (pulled
-in by the desktop environment); it only tends to be missing on minimal/
-headless installs or bare WSL distros without a desktop environment
-installed.
+Not tested as regularly as Windows/Linux.
+
+---
+
+First run installs dependencies into a local `.venv/` (~1 minute); every
+run after that starts straight into the app. Pass a file path to open it
+directly: `./run.sh data.h5` / `run.bat data.h5`.
+
+<details>
+<summary>What the scripts actually do</summary>
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt   # .venv\Scripts\pip.exe on Windows
+.venv/bin/python run.py                     # .venv\Scripts\python.exe on Windows
+```
+
+</details>
 
 ## Download (prebuilt binaries)
 
@@ -82,8 +81,7 @@ anyway"). Code-signing isn't set up for this project (see
 "Quick start" above avoids it entirely — running your own freshly-built
 code has nothing for SmartScreen to warn about.
 
-macOS isn't built yet — Quick start (running from source) works there too,
-though it isn't tested as regularly as Windows/Linux.
+macOS isn't built as a prebuilt binary — see "Quick start" above instead.
 
 ## Contributing
 
