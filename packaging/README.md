@@ -74,19 +74,24 @@ users, download stats, media coverage, etc.) that a brand-new project
 genuinely doesn't have yet -- not a bar this project could honestly claim
 to clear. Revisit this if the project gains real traction later.
 
-In the meantime, the root README's "Quick start" (`run.sh` / `run.bat`)
+In the meantime, the root README's "Quick start" (`scripts/run.sh` /
+`scripts/run.bat`)
 is the answer for anyone put off by the SmartScreen warning: running
 your own freshly-built code from source has nothing for SmartScreen to
 warn about in the first place.
 
 ## What's *not* built here (possible future additions, not done now)
 
-- A real Windows installer (Start Menu entry, uninstaller) via Inno Setup
-  or NSIS -- currently just a portable zip. Straightforward to add later
-  as another CI step once/if wanted.
-- A Linux AppImage/.deb/.rpm -- currently just a portable tar.gz. Same
-  story: doable later, deliberately not built now to keep this first pass
-  simple and robust.
+- A native Windows installer (Inno Setup/NSIS) with an Add/Remove
+  Programs entry -- what exists instead is `scripts/install.ps1`/
+  `scripts/install.bat`, which build from source and install per-user
+  (Start Menu shortcut, its own uninstaller), but aren't a signed
+  installer wizard and don't register with Windows' own program list.
+  Straightforward to add later as a CI step once/if wanted.
+- A Linux AppImage/.deb/.rpm -- `scripts/install.sh` covers the
+  same "build from source and install" need (application-menu entry,
+  `yaht` on `PATH`, its own uninstaller) without one. A real
+  AppImage/.deb/.rpm is still doable later if wanted.
 - A custom app icon -- there's no `.ico`/`.png` app icon in this repo yet
   (the app draws its *in-window* icons on the fly via Pillow, see
   `icons.py`, but never sets a taskbar/window icon), so builds use

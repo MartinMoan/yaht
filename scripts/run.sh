@@ -4,7 +4,7 @@
 # venv/install step only happens once (delete the .venv/ directory to
 # force a clean reinstall).
 set -e
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 
 if [ ! -d .venv ]; then
     python3 -m venv .venv
@@ -12,4 +12,4 @@ if [ ! -d .venv ]; then
     .venv/bin/pip install -r requirements.txt
 fi
 
-exec .venv/bin/python run.py "$@"
+exec .venv/bin/python src/run.py "$@"

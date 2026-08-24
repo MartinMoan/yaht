@@ -18,12 +18,12 @@ viewer for HDF5 (`.h5`) files, built with
 
 ### Windows
 
-Double-click `run.bat`.
+Double-click `scripts/run.bat`.
 
 ### Linux
 
 ```bash
-./run.sh
+./scripts/run.sh
 ```
 
 If this fails with a *"could not load the Qt platform plugin xcb"*
@@ -35,7 +35,7 @@ minimal/headless installs.
 ### macOS
 
 ```bash
-./run.sh
+./scripts/run.sh
 ```
 
 Not tested as regularly as Windows/Linux.
@@ -44,18 +44,39 @@ Not tested as regularly as Windows/Linux.
 
 First run installs dependencies into a local `.venv/` (~1 minute); every
 run after that starts straight into the app. Pass a file path to open it
-directly: `./run.sh data.h5` / `run.bat data.h5`.
+directly: `./scripts/run.sh data.h5` / `scripts\run.bat data.h5`.
 
 <details>
 <summary>What the scripts actually do</summary>
 
+Run from the repository root (the scripts `cd` there automatically):
+
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt   # .venv\Scripts\pip.exe on Windows
-.venv/bin/python run.py                     # .venv\Scripts\python.exe on Windows
+.venv/bin/python src/run.py                 # .venv\Scripts\python.exe on Windows
 ```
 
 </details>
+
+## Install (build from source)
+
+Builds a real standalone copy with PyInstaller and installs it for your
+user account — no admin/sudo rights needed. Detects an existing install
+first and asks before touching it (uninstall-and-continue, or abort).
+
+- **Windows:** double-click `scripts/install.bat`.
+- **Linux:** run `./scripts/install.sh` in a terminal.
+
+| OS | Installed to | Shortcut |
+|----|--------------|----------|
+| Windows | `%LOCALAPPDATA%\Programs\YAHT` | Start Menu entry ("YAHT" and "Uninstall YAHT") |
+| Linux | `~/.local/share/yaht` | Application-menu entry, plus a `yaht` command on `~/.local/bin` |
+
+To uninstall later without re-running the installer: use the "Uninstall
+YAHT" Start Menu shortcut (Windows), or run
+`~/.local/share/yaht/uninstall.sh` (Linux) — both work standalone,
+without needing this repository around.
 
 ## Download (prebuilt binaries)
 

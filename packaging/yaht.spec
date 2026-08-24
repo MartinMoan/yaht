@@ -35,7 +35,7 @@ from pathlib import Path
 repo_root = Path(SPECPATH).resolve().parent
 
 a = Analysis(
-    [str(repo_root / "run.py")],
+    [str(repo_root / "src" / "run.py")],
     pathex=[str(repo_root / "src")],
     binaries=[],
     datas=[

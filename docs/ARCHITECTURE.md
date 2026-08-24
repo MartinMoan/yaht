@@ -80,8 +80,8 @@ either the old Tk version or this one handles.)
 ## Project layout
 
 ```
-run.py                          entry point: python run.py [file.h5]
 src/
+  run.py                        entry point: python src/run.py [file.h5]
   app.py                        main window + frameless window chrome
   theme.py                      Fusion style, QPalette, light/dark detection
   constants.py                  sizing + column color palette
@@ -96,5 +96,9 @@ src/
     dataset_table.py            virtualized table (QTableView + model)
     group_panel.py              overview shown for groups / file root
     status_bar.py                bottom status strip
+scripts/
+  run.sh / run.bat              launch from source (sets up a venv first)
+  install.sh / install.ps1 /    build from source and install locally
+    install.bat
 tests/                          pytest suite for core/ (no GUI)
 ```
