@@ -17,6 +17,10 @@ from theme import Palette, ThemeManager
 ICON_SIZE = 15
 NODE_ROLE = Qt.ItemDataRole.UserRole + 1
 DUMMY_ROLE = Qt.ItemDataRole.UserRole + 2
+# Which H5Model a given item belongs to -- needed once more than one
+# file can be open at once (each gets its own root item), since NodeInfo
+# itself only carries an in-file path, not which file it's from.
+MODEL_ROLE = Qt.ItemDataRole.UserRole + 3
 
 
 def _shape_summary(node: NodeInfo) -> str:
@@ -40,8 +44,8 @@ class HierarchyTree(QWidget):
     def __init__(
         self,
         theme: ThemeManager,
-        on_select: Callable[[NodeInfo], None],
-        on_activate: Optional[Callable[[NodeInfo], None]] = None,
+        on_select: Callable[[H5Model, NodeInfo], None],
+        on_activate: Optional[Callable[[H5Model, NodeInfo], None]] = None,
         parent=None,
     ):
         super().__init__(parent)
@@ -54,8 +58,10 @@ class HierarchyTree(QWidget):
         # only so any other future embedder of this tree isn't forced to
         # care about that distinction.
         self._on_activate = on_activate
-        self._model_ref: Optional[H5Model] = None
-        self._items: dict[str, QStandardItem] = {}
+        # Keyed by (model, in-file path) -- a bare path isn't unique once
+        # more than one file can be open, since two different files can
+        # both have e.g. "/data".
+        self._items: dict[tuple[H5Model, str], QStandardItem] = {}
         self._palette: Palette = theme.palette
         # Otherwise transparent, so the top/left layout margin below would
         # expose App's own (darker) background rather than the tree's own
@@ -95,30 +101,35 @@ class HierarchyTree(QWidget):
 
     # -- public API ------------------------------------------------------
 
-    def load_file(self, model: H5Model) -> None:
+    def load_files(self, models: list[H5Model]) -> None:
+        """Populates the tree with one root item per model, each file's
+        own group hierarchy nested beneath it -- so several files can be
+        browsed side by side, e.g. every .h5 file found in a directory."""
         self.clear()
-        self._model_ref = model
-        root_info = model.root_info()
+        for model in models:
+            root_info = model.root_info()
+            root_item = self._make_name_item(root_info, Path(model.path).name)
+            root_item.setData(model, MODEL_ROLE)
+            self.model.appendRow(root_item)
+            self._items[(model, "/")] = root_item
+            self._populate_children(model, "/", root_item)
 
-        root_item = self._make_name_item(root_info, Path(model.path).name)
-        self.model.appendRow(root_item)
-        self._items["/"] = root_item
-
-        self._populate_children("/", root_item)
-        self.tree.expand(root_item.index())
-        self.tree.setCurrentIndex(root_item.index())  # triggers _on_selection_changed
+        if self.model.rowCount():
+            first_root = self.model.item(0)
+            self.tree.expand(first_root.index())
+            self.tree.setCurrentIndex(first_root.index())  # triggers _on_selection_changed
         self._apply_min_width()
 
     def clear(self) -> None:
         self.model.removeRows(0, self.model.rowCount())
         self._items.clear()
-        self._model_ref = None
 
-    def select_path(self, path: str) -> None:
-        """Programmatically reveal and select ``path``, lazily expanding
-        any ancestor groups that haven't been populated yet. Used when a
-        child row is clicked in the group overview panel."""
-        if self._model_ref is None or "/" not in self._items:
+    def select_path(self, model: H5Model, path: str) -> None:
+        """Programmatically reveal and select ``path`` within ``model``,
+        lazily expanding any ancestor groups that haven't been populated
+        yet. Used when a child row is clicked in the group overview
+        panel."""
+        if (model, "/") not in self._items:
             return
 
         parts = [p for p in path.split("/") if p]
@@ -126,14 +137,14 @@ class HierarchyTree(QWidget):
         for i in range(len(parts) + 1):
             if i > 0:
                 current = "/" + "/".join(parts[:i])
-            item = self._items.get(current)
+            item = self._items.get((model, current))
             if item is None:
                 return
             if item.rowCount() == 1 and item.child(0).data(DUMMY_ROLE):
                 item.removeRow(0)
-                self._populate_children(current, item)
+                self._populate_children(model, current, item)
 
-        item = self._items.get(path)
+        item = self._items.get((model, path))
         if item is None:
             return
         index = item.index()
@@ -157,13 +168,12 @@ class HierarchyTree(QWidget):
         item.setIcon(icons.icon(node.kind, self._icon_color(node.kind), ICON_SIZE))
         return item
 
-    def _populate_children(self, path: str, parent_item: QStandardItem) -> None:
-        if self._model_ref is None:
-            return
-        for child in self._model_ref.list_children(path):
+    def _populate_children(self, model: H5Model, path: str, parent_item: QStandardItem) -> None:
+        for child in model.list_children(path):
             name_item = self._make_name_item(child, child.name)
+            name_item.setData(model, MODEL_ROLE)
             parent_item.appendRow(name_item)
-            self._items[child.path] = name_item
+            self._items[(model, child.path)] = name_item
             if child.kind == GROUP and (child.n_children or 0) > 0:
                 dummy = QStandardItem("")
                 dummy.setEditable(False)
@@ -175,8 +185,9 @@ class HierarchyTree(QWidget):
         if item.rowCount() == 1 and item.child(0).data(DUMMY_ROLE):
             item.removeRow(0)
             node = item.data(NODE_ROLE)
-            if node is not None:
-                self._populate_children(node.path, item)
+            model = item.data(MODEL_ROLE)
+            if node is not None and model is not None:
+                self._populate_children(model, node.path, item)
         self._apply_min_width()
 
     def _on_collapsed(self, _index) -> None:
@@ -229,16 +240,18 @@ class HierarchyTree(QWidget):
             return
         item = self.model.itemFromIndex(indexes[0])
         node = item.data(NODE_ROLE)
-        if node is not None:
-            self._on_select(node)
+        model = item.data(MODEL_ROLE)
+        if node is not None and model is not None:
+            self._on_select(model, node)
 
     def _on_double_clicked(self, index) -> None:
         item = self.model.itemFromIndex(index)
         if item is None:
             return
         node = item.data(NODE_ROLE)
-        if node is not None and self._on_activate is not None:
-            self._on_activate(node)
+        model = item.data(MODEL_ROLE)
+        if node is not None and model is not None and self._on_activate is not None:
+            self._on_activate(model, node)
 
     def _apply_palette(self, palette: Palette) -> None:
         self._palette = palette

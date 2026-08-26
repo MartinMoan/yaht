@@ -67,12 +67,14 @@ LAUNCHER
 chmod +x "$BIN_LINK"
 
 mkdir -p "$DESKTOP_DIR"
+# %F (not %f): lets a file manager's "Open With" pass through multiple
+# selected .h5 files at once, not just one.
 cat > "$DESKTOP_FILE" <<DESKTOP
 [Desktop Entry]
 Type=Application
 Name=$APP_NAME
 Comment=Yet Another Hdf5 Tool -- HDF5 file viewer
-Exec="$INSTALL_DIR/YAHT" %f
+Exec="$INSTALL_DIR/YAHT" %F
 Terminal=false
 Categories=Utility;Science;
 DESKTOP

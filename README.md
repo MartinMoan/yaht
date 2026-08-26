@@ -3,7 +3,9 @@
 **Y**et **A**nother **H**df5 **T**ool — a modern, cross-platform desktop
 viewer for HDF5 (`.h5`) files, built with
 [PySide6 (Qt for Python)](https://doc.qt.io/qtforpython-6/) and
-[h5py](https://www.h5py.org/).
+[h5py](https://www.h5py.org/). Open a single file, several at once, or
+point it at a whole folder to browse every `.h5` file inside side by
+side in the tree.
 
 <!-- TODO: replace with a real screenshot at docs/screenshot.png -->
 ![YAHT screenshot](docs/screenshot.png)
@@ -43,8 +45,11 @@ Not tested as regularly as Windows/Linux.
 ---
 
 First run installs dependencies into a local `.venv/` (~1 minute); every
-run after that starts straight into the app. Pass a file path to open it
-directly: `./scripts/run.sh data.h5` / `scripts\run.bat data.h5`.
+run after that starts straight into the app. Pass one or more paths to
+open them directly -- files, a directory (every `.h5` file directly
+inside it), or a mix of both:
+`./scripts/run.sh data.h5` / `scripts\run.bat data.h5`,
+or `./scripts/run.sh a.h5 b.h5 some-folder/`.
 
 <details>
 <summary>What the scripts actually do</summary>
@@ -71,10 +76,14 @@ an existing install first and asks before touching it
 - **Windows:** double-click `scripts/install.bat`.
 - **Linux:** run `./scripts/install.sh` in a terminal.
 
-| OS | Installed to | Appears in search via |
-|----|--------------|------------------------|
-| Windows | `%LOCALAPPDATA%\Programs\YAHT` | A Start Menu shortcut ("YAHT" and "Uninstall YAHT") — the same mechanism any per-user Windows installer uses |
-| Linux | `~/.local/share/yaht` | A `~/.local/share/applications/yaht.desktop` entry — the standard freedesktop.org mechanism GNOME/KDE/XFCE search all read from — plus a `yaht` command on `~/.local/bin` |
+| OS | Installed to | Appears in search via | `yaht` command |
+|----|--------------|------------------------|-----------------|
+| Windows | `%LOCALAPPDATA%\Programs\YAHT` | A Start Menu shortcut ("YAHT" and "Uninstall YAHT") — the same mechanism any per-user Windows installer uses | Added to your user `PATH` automatically -- open a *new* terminal window after installing |
+| Linux | `~/.local/share/yaht` | A `~/.local/share/applications/yaht.desktop` entry — the standard freedesktop.org mechanism GNOME/KDE/XFCE search all read from | A `yaht` wrapper on `~/.local/bin` -- restart your terminal (or log back in) if it's not on `PATH` yet |
+
+Either way, `yaht` takes the same arguments as running from source: a
+file, several files, a directory, or a mix --
+e.g. `yaht data.h5` or `yaht some-folder/`.
 
 To uninstall later without re-running the installer: use the "Uninstall
 YAHT" Start Menu shortcut (Windows), or run

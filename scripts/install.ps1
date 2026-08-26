@@ -11,6 +11,28 @@ $StartMenuDir = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
 $Shortcut = Join-Path $StartMenuDir "YAHT.lnk"
 $UninstallShortcut = Join-Path $StartMenuDir "Uninstall YAHT.lnk"
 
+# Registers/unregisters $InstallDir on the current *user's* PATH (not
+# the system-wide one, so no admin rights needed) -- since YAHT.exe
+# already lives there, this is all "yaht" on the command line needs to
+# resolve to it; no separate wrapper script required. Only takes effect
+# in *new* terminal windows/processes -- existing open ones keep
+# whatever PATH they started with, same as any other PATH change.
+function Add-ToUserPath($dir) {
+    $current = [Environment]::GetEnvironmentVariable("Path", "User")
+    $parts = if ($current) { $current -split ";" } else { @() }
+    if ($parts -notcontains $dir) {
+        $new = if ($current) { "$current;$dir" } else { $dir }
+        [Environment]::SetEnvironmentVariable("Path", $new, "User")
+    }
+}
+
+function Remove-FromUserPath($dir) {
+    $current = [Environment]::GetEnvironmentVariable("Path", "User")
+    if (-not $current) { return }
+    $parts = $current -split ";" | Where-Object { $_ -and ($_ -ne $dir) }
+    [Environment]::SetEnvironmentVariable("Path", ($parts -join ";"), "User")
+}
+
 if (Test-Path $InstallDir) {
     Write-Host "An existing $AppName installation was found at $InstallDir."
     $reply = Read-Host "Uninstall it and continue installing? [y/N]"
@@ -19,6 +41,7 @@ if (Test-Path $InstallDir) {
         Remove-Item -Recurse -Force $InstallDir
         Remove-Item -Force $Shortcut -ErrorAction SilentlyContinue
         Remove-Item -Force $UninstallShortcut -ErrorAction SilentlyContinue
+        Remove-FromUserPath $InstallDir
     } else {
         Write-Host "Aborting install. Nothing was changed."
         exit 1
@@ -41,6 +64,7 @@ Write-Host "Installing to $InstallDir..."
 New-Item -ItemType Directory -Force -Path (Split-Path $InstallDir) | Out-Null
 Copy-Item -Recurse "dist\YAHT" $InstallDir
 Remove-Item -Recurse -Force "build", "dist"
+Add-ToUserPath $InstallDir
 
 New-Item -ItemType Directory -Force -Path $StartMenuDir | Out-Null
 $WshShell = New-Object -ComObject WScript.Shell
@@ -55,6 +79,11 @@ $lnk.Save()
 # be around to uninstall later.
 $UninstallScript = Join-Path $InstallDir "uninstall.ps1"
 @"
+`$current = [Environment]::GetEnvironmentVariable('Path', 'User')
+if (`$current) {
+    `$parts = `$current -split ';' | Where-Object { `$_ -and (`$_ -ne '$InstallDir') }
+    [Environment]::SetEnvironmentVariable('Path', (`$parts -join ';'), 'User')
+}
 Remove-Item -Recurse -Force '$InstallDir'
 Remove-Item -Force '$Shortcut' -ErrorAction SilentlyContinue
 Remove-Item -Force '$UninstallShortcut' -ErrorAction SilentlyContinue
@@ -67,5 +96,6 @@ $uninstallLnk.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$Uninstall
 $uninstallLnk.Save()
 
 Write-Host ""
-Write-Host "$AppName installed. Find it in the Start Menu."
+Write-Host "$AppName installed. Find it in the Start Menu, or run: yaht"
+Write-Host "(open a *new* terminal window first -- PATH changes don't reach ones already open)"
 Write-Host "To uninstall later: use the 'Uninstall $AppName' Start Menu shortcut."

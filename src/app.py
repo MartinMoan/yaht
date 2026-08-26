@@ -1,5 +1,6 @@
 """Main application window: wires the hierarchy tree, dataset table and
-group overview panel together around a single open HDF5 file.
+group overview panel together around one or more open HDF5 files (e.g.
+every .h5 file found in a directory) -- see open_paths.
 
 The window is frameless (``Qt.FramelessWindowHint``) with a hand-drawn
 title bar (``widgets/title_bar.py``), because the native window frame is
@@ -33,7 +34,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from constants import APP_NAME
+from constants import APP_NAME, H5_SUFFIXES
 from core.h5_model import H5Model, H5ModelError, NodeInfo
 from theme import Palette, ThemeManager
 from widgets.dataset_tabs import DatasetTabsView
@@ -48,14 +49,17 @@ _MIN_W, _MIN_H = 860, 560
 
 
 class App(FramelessWindowMixin, QWidget):
-    def __init__(self, initial_path: Optional[str] = None):
+    def __init__(self, initial_paths: Optional[list[str]] = None):
         super().__init__()
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setWindowTitle(APP_NAME)
         self.setMinimumSize(_MIN_W, _MIN_H)
         self.resize(_DEFAULT_W, _DEFAULT_H)
 
-        self.model: Optional[H5Model] = None
+        # One entry per currently-open file -- e.g. every .h5 file in a
+        # directory passed on the command line or picked via "Open"
+        # without selecting one specific file (see open_paths).
+        self.models: list[H5Model] = []
         self.theme = ThemeManager(QApplication.instance())
         self.theme.set_mode("dark")
 
@@ -111,8 +115,8 @@ class App(FramelessWindowMixin, QWidget):
         self._center_on_screen()
         self.theme.register(self._apply_palette)
 
-        if initial_path:
-            self.open_file(initial_path)
+        if initial_paths:
+            self.open_paths(initial_paths)
 
     def _center_on_screen(self) -> None:
         screen = QApplication.primaryScreen()
@@ -153,72 +157,116 @@ class App(FramelessWindowMixin, QWidget):
     # -- file lifecycle ------------------------------------------------
 
     def _open_file_dialog(self) -> None:
-        start_dir = str(Path(self.model.path).parent) if self.model is not None else str(Path.home())
+        start_dir = str(Path(self.models[-1].path).parent) if self.models else str(Path.home())
         dialog = FileOpenDialog(self.theme, start_dir=start_dir, parent=self)
-        path = dialog.get_path()
-        if path:
-            self.open_file(path)
+        paths = dialog.get_paths()
+        if paths:
+            self.open_paths(paths)
 
     def open_file(self, path: str) -> None:
-        try:
-            new_model = H5Model(path)
-        except Exception as exc:  # noqa: BLE001 - surface any h5py/OS error to the user
-            self.status_bar.set_message(f"Could not open file: {exc}", is_error=True)
+        self.open_paths([path])
+
+    def open_paths(self, paths: list[str]) -> None:
+        """Opens ``paths`` as a fresh session, replacing whatever's
+        currently open -- each entry is either an .h5 file, used as-is,
+        or a directory, expanded to every .h5 file directly inside it
+        (see the file-open dialog's "no file selected" case, and the CLI
+        entry point, for the two ways a directory ends up here).
+        De-duplicates by resolved path, so e.g. ``yaht a.h5 .`` (a.h5
+        both named explicitly and found again via the directory scan)
+        doesn't open it twice."""
+        resolved: list[str] = []
+        seen: set[str] = set()
+
+        def add(p: Path) -> None:
+            key = str(p.resolve()) if p.exists() else str(p)
+            if key not in seen:
+                seen.add(key)
+                resolved.append(str(p))
+
+        for raw in paths:
+            candidate = Path(raw).expanduser()
+            if candidate.is_dir():
+                found = sorted(
+                    (f for f in candidate.iterdir() if f.is_file() and f.suffix.lower() in H5_SUFFIXES),
+                    key=lambda f: f.name.lower(),
+                )
+                if not found:
+                    self.status_bar.set_message(f"No .h5 files found in {candidate}", is_error=True)
+                    continue
+                for f in found:
+                    add(f)
+            else:
+                add(candidate)
+
+        if not resolved:
             return
 
-        if self.model is not None:
-            self.dataset_tabs.clear_all()
-            self.model.close()
+        new_models: list[H5Model] = []
+        errors: list[str] = []
+        for path in resolved:
+            try:
+                new_models.append(H5Model(path))
+            except Exception as exc:  # noqa: BLE001 - surface any h5py/OS error to the user
+                errors.append(f"{Path(path).name}: {exc}")
 
-        self.model = new_model
-        self.tree.load_file(self.model)
-        self.status_bar.set_path(self.model.path)
-        self.status_bar.set_message("File loaded")
+        if not new_models:
+            self.status_bar.set_message(f"Could not open file(s): {'; '.join(errors)}", is_error=True)
+            return
+
+        self.dataset_tabs.clear_all()
+        for old_model in self.models:
+            old_model.close()
+
+        self.models = new_models
+        self.tree.load_files(self.models)
+        if len(self.models) == 1:
+            self.status_bar.set_path(self.models[0].path)
+            self.status_bar.set_message("File loaded")
+        else:
+            self.status_bar.set_path(None)
+            self.status_bar.set_message(f"Loaded {len(self.models)} files")
+        if errors:
+            self.status_bar.set_message(f"Some files failed to open: {'; '.join(errors)}", is_error=True)
         # So the user can start navigating the hierarchy with arrow keys
         # right away, without first having to click into the sidebar.
         self.tree.tree.setFocus()
 
-    def _on_node_selected(self, node: NodeInfo) -> None:
-        if self.model is None:
-            return
-        self._open_node(node, permanent=False)
+    def _on_node_selected(self, model: H5Model, node: NodeInfo) -> None:
+        self._open_node(model, node, permanent=False)
 
-    def _on_node_activated(self, node: NodeInfo) -> None:
+    def _on_node_activated(self, model: H5Model, node: NodeInfo) -> None:
         # Tree double-click -- see HierarchyTree's on_activate. Groups
         # still also expand/collapse on double-click via Qt's own default
         # QTreeView behavior; this additionally pins the group's own tab,
         # same as it does for datasets.
-        if self.model is None:
-            return
-        self._open_node(node, permanent=True)
+        self._open_node(model, node, permanent=True)
 
-    def _open_node(self, node: NodeInfo, permanent: bool) -> None:
+    def _open_node(self, model: H5Model, node: NodeInfo, permanent: bool) -> None:
         try:
-            self.dataset_tabs.open_node(self.model, node, permanent=permanent)
+            self.dataset_tabs.open_node(model, node, permanent=permanent)
         except H5ModelError as exc:
             self.status_bar.set_message(str(exc), is_error=True)
 
-    def _activate_path(self, path: str) -> None:
-        self.tree.select_path(path)
+    def _activate_path(self, model: H5Model, path: str) -> None:
+        self.tree.select_path(model, path)
 
-    def _activate_path_permanent(self, path: str) -> None:
+    def _activate_path_permanent(self, model: H5Model, path: str) -> None:
         # Group panel's child-row double-click -- mirrors
         # _on_node_activated reached this way instead of via the tree
         # directly. select_path already fires _on_node_selected (a
         # preview open) through the tree's own selectionChanged; this
         # then pins/promotes that same node to a permanent tab, the same
         # order double-clicking a tree row happens in.
-        self.tree.select_path(path)
-        if self.model is None:
-            return
-        node = self.model.node_info(path)
-        self._open_node(node, permanent=True)
+        self.tree.select_path(model, path)
+        node = model.node_info(path)
+        self._open_node(model, node, permanent=True)
 
     def closeEvent(self, event) -> None:
         self._teardown_frameless()
         self.dataset_tabs.clear_all()
-        if self.model is not None:
-            self.model.close()
+        for model in self.models:
+            model.close()
         super().closeEvent(event)
 
     # -- window chrome -----------------------------------------------------
@@ -286,7 +334,7 @@ class App(FramelessWindowMixin, QWidget):
         )
 
 
-def main(initial_path: Optional[str] = None) -> None:
+def main(initial_paths: Optional[list[str]] = None) -> None:
     # Required by Qt WebEngine (see widgets/graph_window.py) *before* the
     # QApplication exists -- without it, QWebEngineView's separate GPU/
     # renderer processes don't share GL contexts with the main process,
@@ -296,6 +344,6 @@ def main(initial_path: Optional[str] = None) -> None:
     if QApplication.instance() is None:
         QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
     app = QApplication.instance() or QApplication([])
-    window = App(initial_path)
+    window = App(initial_paths)
     window.show()
     app.exec()

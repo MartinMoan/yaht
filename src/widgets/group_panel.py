@@ -41,8 +41,8 @@ class GroupPanel(QWidget):
     def __init__(
         self,
         theme: ThemeManager,
-        on_child_activate: Callable[[str], None],
-        on_child_double_activate: Optional[Callable[[str], None]] = None,
+        on_child_activate: Callable[[H5Model, str], None],
+        on_child_double_activate: Optional[Callable[[H5Model, str], None]] = None,
         parent=None,
     ):
         super().__init__(parent)
@@ -114,7 +114,7 @@ class GroupPanel(QWidget):
             return
 
         for child in children:
-            i = self._add_child_row(child, i)
+            i = self._add_child_row(model, child, i)
 
     def _add_section_header(self, text: str, index: int) -> int:
         if not text:
@@ -140,7 +140,7 @@ class GroupPanel(QWidget):
         self.body_layout.insertWidget(index, row)
         return index + 1
 
-    def _add_child_row(self, child: NodeInfo, index: int) -> int:
+    def _add_child_row(self, model: H5Model, child: NodeInfo, index: int) -> int:
         row = _ClickableRow()
         row.setObjectName("childRow")
         row_layout = QHBoxLayout(row)
@@ -158,9 +158,9 @@ class GroupPanel(QWidget):
         info_label.setStyleSheet(f"color: {self._palette.subtext}; font-size: 9pt;")
         row_layout.addWidget(info_label)
 
-        row.clicked.connect(lambda p=child.path: self._on_child_activate(p))
+        row.clicked.connect(lambda m=model, p=child.path: self._on_child_activate(m, p))
         if self._on_child_double_activate is not None:
-            row.doubleClicked.connect(lambda p=child.path: self._on_child_double_activate(p))
+            row.doubleClicked.connect(lambda m=model, p=child.path: self._on_child_double_activate(m, p))
         self.body_layout.insertWidget(index, row)
         return index + 1
 

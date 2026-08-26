@@ -102,8 +102,8 @@ class DatasetTabsView(QWidget):
     def __init__(
         self,
         theme: ThemeManager,
-        on_child_activate: Callable[[str], None],
-        on_child_double_activate: Callable[[str], None],
+        on_child_activate: Callable[[H5Model, str], None],
+        on_child_double_activate: Callable[[H5Model, str], None],
         parent=None,
     ):
         super().__init__(parent)
@@ -117,7 +117,11 @@ class DatasetTabsView(QWidget):
         # Keyed by each tab's content widget instance, not by tab index
         # -- indices shift every time an earlier tab closes, so anything
         # that needs to survive that has to be keyed off something stable.
-        self._tab_paths: dict[QWidget, str] = {}
+        # Value is (model, in-file path), not just a bare path -- once
+        # more than one file can be open at once, two different files
+        # can both have e.g. "/data", so the model is needed too to tell
+        # their tabs apart.
+        self._tab_paths: dict[QWidget, tuple[H5Model, str]] = {}
         self._tab_contexts: dict[QWidget, str] = {}
         self._preview_view: Optional[QWidget] = None
 
@@ -167,7 +171,7 @@ class DatasetTabsView(QWidget):
         untouched. Callers should show the error to the user themselves
         (see ``App._open_node``).
         """
-        existing = self._view_for_path(node.path)
+        existing = self._view_for_path(model, node.path)
         if existing is not None:
             self._tabs.setCurrentWidget(existing)
             if permanent and existing is self._preview_view:
@@ -191,9 +195,9 @@ class DatasetTabsView(QWidget):
 
     # -- internals -----------------------------------------------------------
 
-    def _view_for_path(self, path: str) -> Optional[QWidget]:
-        for view, p in self._tab_paths.items():
-            if p == path:
+    def _view_for_path(self, model: H5Model, path: str) -> Optional[QWidget]:
+        for view, (m, p) in self._tab_paths.items():
+            if m is model and p == path:
                 return view
         return None
 
@@ -252,7 +256,7 @@ class DatasetTabsView(QWidget):
         self._tabs.setTabToolTip(index, node.path)
         self._tabs.setTabIcon(index, icons.icon(node.kind, self._tab_icon_color(node), 14))
         self._tab_bar.setTabButton(index, QTabBar.ButtonPosition.RightSide, self._make_close_button(view))
-        self._tab_paths[view] = node.path
+        self._tab_paths[view] = (model, node.path)
         if preview:
             if self._preview_view is not None:
                 # open_node only calls this with preview=True when
@@ -290,7 +294,7 @@ class DatasetTabsView(QWidget):
             self._preview_view = view
 
         index = self._tabs.indexOf(view)
-        self._tab_paths[view] = node.path
+        self._tab_paths[view] = (model, node.path)
         self._tabs.setTabText(index, self._tab_title(model, node))
         self._tabs.setTabToolTip(index, node.path)
         self._tabs.setTabIcon(index, icons.icon(node.kind, self._tab_icon_color(node), 14))
@@ -316,38 +320,51 @@ class DatasetTabsView(QWidget):
         self._refresh_tab_titles()
 
     def _refresh_tab_titles(self) -> None:
-        """Disambiguates dataset tabs that share a bare name (e.g. two
-        "readings" datasets under different groups) by prefixing each
-        with just enough of its group path to tell them apart -- up to,
-        but not including, the group they have in common. Tabs whose
-        name is unique among currently open dataset tabs, and every
-        group tab, are untouched."""
-        by_name: dict[str, list[str]] = {}
-        for view, path in self._tab_paths.items():
-            if isinstance(view, DatasetTableView):
-                by_name.setdefault(path.rsplit("/", 1)[-1], []).append(path)
+        """Disambiguates tabs that share a bare name -- either two
+        datasets (or two non-root groups) under different groups of the
+        same file, or, now that more than one file can be open at once,
+        the same dataset/group name in two different files -- by
+        prefixing each with just enough of its group path (and, for a
+        same-name-different-file collision, the file name too -- see
+        _disambiguated_title) to tell them apart. The root "/" tab
+        already shows the file name unconditionally (_tab_title) so it's
+        excluded here. Tabs whose name is unique are untouched."""
+        by_name: dict[tuple[str, str], list[tuple[H5Model, str]]] = {}
+        for view, (model, path) in self._tab_paths.items():
+            if path == "/":
+                continue
+            kind = DATASET if isinstance(view, DatasetTableView) else GROUP
+            by_name.setdefault((kind, path.rsplit("/", 1)[-1]), []).append((model, path))
 
         for i in range(self._tabs.count()):
             view = self._tabs.widget(i)
-            if not isinstance(view, DatasetTableView):
+            entry = self._tab_paths.get(view)
+            if entry is None:
                 continue
-            path = self._tab_paths.get(view)
-            if path is None:
+            model, path = entry
+            if path == "/":
                 continue
-            colliding = by_name.get(path.rsplit("/", 1)[-1], [])
-            title = self._disambiguated_title(path, colliding) if len(colliding) > 1 else path.rsplit("/", 1)[-1]
+            kind = DATASET if isinstance(view, DatasetTableView) else GROUP
+            leaf = path.rsplit("/", 1)[-1]
+            colliding = by_name.get((kind, leaf), [])
+            title = self._disambiguated_title(model, path, colliding) if len(colliding) > 1 else leaf
             self._tabs.setTabText(i, title)
 
     @staticmethod
-    def _disambiguated_title(path: str, colliding_paths: list[str]) -> str:
-        part_lists = [[p for p in cp.split("/") if p] for cp in colliding_paths]
+    def _disambiguated_title(model: H5Model, path: str, colliding: list[tuple[H5Model, str]]) -> str:
+        multi_file = len({m.path for m, _ in colliding}) > 1
+        part_lists = [[p for p in cp.split("/") if p] for _, cp in colliding]
         common = 0
         for segment in zip(*part_lists):
             if len(set(segment)) > 1:
                 break
             common += 1
         my_parts = [p for p in path.split("/") if p]
-        return "/".join(my_parts[common:])
+        # Falls back to the leaf name if every colliding path is
+        # identical up to (and including) this one -- only possible
+        # across different files, since paths are unique within one.
+        suffix = "/".join(my_parts[common:]) or my_parts[-1]
+        return f"{Path(model.path).name}: {suffix}" if multi_file else suffix
 
     def _on_view_context(self, view: QWidget, text: str) -> None:
         self._tab_contexts[view] = text

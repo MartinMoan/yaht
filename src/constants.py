@@ -8,6 +8,11 @@ from __future__ import annotations
 
 APP_NAME = "YAHT"
 
+# File extensions treated as HDF5 files -- both by the file-open dialog's
+# listing/completion and by directory scanning (CLI args, "open every
+# .h5 file in this folder").
+H5_SUFFIXES = {".h5", ".hdf5", ".he5"}
+
 ROW_HEIGHT = 27
 HEADER_HEIGHT = 32
 INDEX_COL_WIDTH = 60

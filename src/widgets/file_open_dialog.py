@@ -34,13 +34,13 @@ from PySide6.QtWidgets import (
 )
 
 import icons
+from constants import H5_SUFFIXES
 from core.h5_model import DATASET, GROUP
 from theme import Palette, ThemeManager
 from .frameless import FramelessWindowMixin
 from .group_panel import _ClickableRow
 from .title_bar import BAR_HEIGHT, SimpleTitleBar
 
-H5_SUFFIXES = {".h5", ".hdf5", ".he5"}
 ICON_SIZE = 17
 
 
@@ -148,6 +148,10 @@ class FileOpenDialog(FramelessWindowMixin, QDialog):
         self._palette: Palette = theme.palette
         self._selected: Optional[Path] = None
         self._selected_row: Optional[_ClickableRow] = None
+        # Every .h5 file in the currently-listed directory -- kept in
+        # sync by _refresh_listing, and what "Open" falls back to when
+        # no specific file is selected (see _on_open_clicked).
+        self._current_h5_files: list[Path] = []
 
         try:
             self.current_dir = Path(start_dir).expanduser().resolve() if start_dir else Path.home()
@@ -213,7 +217,7 @@ class FileOpenDialog(FramelessWindowMixin, QDialog):
         self.open_button = QPushButton("Open")
         self.open_button.setEnabled(False)
         self.open_button.setDefault(True)
-        self.open_button.clicked.connect(self.accept)
+        self.open_button.clicked.connect(self._on_open_clicked)
         footer.addWidget(self.open_button)
         content_layout.addLayout(footer)
 
@@ -225,10 +229,17 @@ class FileOpenDialog(FramelessWindowMixin, QDialog):
         theme.register(self._apply_palette)
         self._refresh_listing()
 
-    def get_path(self) -> Optional[str]:
-        if self.exec() == QDialog.DialogCode.Accepted and self._selected is not None:
-            return str(self._selected)
-        return None
+    def get_paths(self) -> Optional[list[str]]:
+        """Runs the dialog modally; returns the file(s) to open, or None
+        if cancelled. One specific file if a row was clicked, or every
+        .h5 file in the current folder if "Open" was used without
+        selecting one (see _on_open_clicked, which validates that case
+        before the dialog is even allowed to accept)."""
+        if self.exec() != QDialog.DialogCode.Accepted:
+            return None
+        if self._selected is not None:
+            return [str(self._selected)]
+        return [str(p) for p in self._current_h5_files]
 
     def closeEvent(self, event) -> None:
         self._teardown_frameless()
@@ -247,6 +258,21 @@ class FileOpenDialog(FramelessWindowMixin, QDialog):
         self.path_edit.end(False)
 
     # -- navigation ------------------------------------------------------
+
+    def _on_open_clicked(self) -> None:
+        # A specific file was clicked -- always valid, just accept.
+        if self._selected is not None:
+            self.accept()
+            return
+        # Nothing selected: falls back to every .h5 file in the current
+        # folder (see get_paths) -- but only once there's actually at
+        # least one. _current_h5_files is only stale here if the folder
+        # changed on disk since the last listing, which re-checking
+        # rather than trusting the cached list guards against.
+        if not self._current_h5_files:
+            self.error_label.setText("No .h5 files found in this folder.")
+            return
+        self.accept()
 
     def _go_up(self) -> None:
         if self.current_dir.parent != self.current_dir:
@@ -273,8 +299,6 @@ class FileOpenDialog(FramelessWindowMixin, QDialog):
         self.error_label.setText("")
         self._selected = None
         self._selected_row = None
-        self.open_button.setEnabled(False)
-        self.selection_label.setText("No file selected")
         self.path_edit.setText(str(self.current_dir))
 
         while self.list_layout.count() > 1:
@@ -294,6 +318,17 @@ class FileOpenDialog(FramelessWindowMixin, QDialog):
         files = sorted(
             (e for e in entries if e.is_file() and e.suffix.lower() in H5_SUFFIXES), key=lambda p: p.name.lower()
         )
+        self._current_h5_files = files
+
+        # Nothing selected yet -- "Open" falls back to every .h5 file
+        # right here (see _on_open_clicked), so it's enabled whenever
+        # there's at least one, not just once a specific file is picked.
+        self.open_button.setEnabled(bool(files))
+        if files:
+            noun = "file" if len(files) == 1 else "files"
+            self.selection_label.setText(f"No file selected -- Open will load all {len(files)} .h5 {noun} here")
+        else:
+            self.selection_label.setText("No .h5 files in this folder")
 
         if not dirs and not files:
             empty = QLabel("No subfolders or .h5 files here.")
