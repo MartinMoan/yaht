@@ -10,6 +10,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QFontMetrics, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import QAbstractItemView, QHeaderView, QTreeView, QVBoxLayout, QWidget
 
+import constants
 import icons
 from core.h5_model import DATASET, GROUP, H5Model, NodeInfo
 from theme import Palette, ThemeManager
@@ -62,6 +63,11 @@ class HierarchyTree(QWidget):
         # more than one file can be open, since two different files can
         # both have e.g. "/data".
         self._items: dict[tuple[H5Model, str], QStandardItem] = {}
+        # Placeholder root rows reserved by begin_loading, index-aligned
+        # with the paths a load was started with -- see resolve_root/
+        # resolve_error, which turn each into a real (or failed) root as
+        # its file finishes opening in the background.
+        self._loading_items: list[QStandardItem] = []
         self._palette: Palette = theme.palette
         # Otherwise transparent, so the top/left layout margin below would
         # expose App's own (darker) background rather than the tree's own
@@ -101,28 +107,70 @@ class HierarchyTree(QWidget):
 
     # -- public API ------------------------------------------------------
 
-    def load_files(self, models: list[H5Model]) -> None:
-        """Populates the tree with one root item per model, each file's
-        own group hierarchy nested beneath it -- so several files can be
-        browsed side by side, e.g. every .h5 file found in a directory."""
+    def begin_loading(self, filenames: list[str]) -> None:
+        """Reserves one placeholder root row per file, in this exact
+        order, before any of them have actually finished opening --
+        opening several files happens on background threads (see
+        core/file_loader.py) so the sidebar doesn't have to sit empty (or
+        fill in in whatever order the threads happen to finish) while
+        that's in progress. Each placeholder is later turned into a real
+        root by resolve_root, or marked failed by resolve_error, by
+        index -- see App._poll_loader."""
         self.clear()
-        for model in models:
-            root_info = model.root_info()
-            root_item = self._make_name_item(root_info, Path(model.path).name)
-            root_item.setData(model, MODEL_ROLE)
-            self.model.appendRow(root_item)
-            self._items[(model, "/")] = root_item
-            self._populate_children(model, "/", root_item)
-
-        if self.model.rowCount():
-            first_root = self.model.item(0)
-            self.tree.expand(first_root.index())
-            self.tree.setCurrentIndex(first_root.index())  # triggers _on_selection_changed
+        for name in filenames:
+            item = QStandardItem(name)
+            item.setEditable(False)
+            item.setEnabled(False)  # not selectable until resolved (or permanently, if it errors)
+            item.setIcon(icons.icon(GROUP, self._palette.subtext, ICON_SIZE))
+            self.model.appendRow(item)
+            self._loading_items.append(item)
         self._apply_min_width()
+
+    def resolve_root(self, index: int, model: H5Model) -> QStandardItem:
+        """Turns the placeholder at ``index`` (see begin_loading) into a
+        real, expandable root for ``model``, lazily -- same dummy-child
+        trick as any other group, so opening e.g. 20 files up front only
+        means 20 fast H5Model/root-child-count opens, not 20 full
+        immediate-children listings; only the file(s) actually expanded
+        (at minimum, whichever one is shown by default -- see
+        App._poll_loader) pay for that."""
+        item = self._loading_items[index]
+        item.setEnabled(True)
+        root_info = model.root_info()
+        item.setData(root_info, NODE_ROLE)
+        item.setData(model, MODEL_ROLE)
+        item.setIcon(icons.icon(root_info.kind, self._icon_color(root_info.kind), ICON_SIZE))
+        self._items[(model, "/")] = item
+        if (root_info.n_children or 0) > 0:
+            dummy = QStandardItem("")
+            dummy.setEditable(False)
+            dummy.setData(True, DUMMY_ROLE)
+            item.appendRow([dummy])
+        self._apply_min_width()
+        return item
+
+    def resolve_error(self, index: int, message: str) -> None:
+        """Marks the placeholder at ``index`` as failed to open -- left
+        in the sidebar (not removed) so it's still obvious which file
+        that was, distinct from one that's still loading."""
+        item = self._loading_items[index]
+        item.setText(f"{item.text()}  — failed to open")
+        item.setToolTip(message)
+        warn_color = constants.WARN_COLOR_DARK if self._palette.dark else constants.WARN_COLOR_LIGHT
+        item.setIcon(icons.icon(GROUP, warn_color, ICON_SIZE))
+
+    def expand_and_select(self, item: QStandardItem) -> None:
+        """Reveals and selects a just-resolved root -- used once, for
+        whichever file finishes loading first (not necessarily the first
+        one listed), so there's something to look at immediately instead
+        of the sidebar sitting there fully loaded but nothing shown."""
+        self.tree.expand(item.index())
+        self.tree.setCurrentIndex(item.index())  # triggers _on_selection_changed
 
     def clear(self) -> None:
         self.model.removeRows(0, self.model.rowCount())
         self._items.clear()
+        self._loading_items = []
 
     def select_path(self, model: H5Model, path: str) -> None:
         """Programmatically reveal and select ``path`` within ``model``,

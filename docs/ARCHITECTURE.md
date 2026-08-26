@@ -77,6 +77,43 @@ worth knowing: Qt's row counts are 32-bit, so a single dataset topping
 roughly 2.1 billion rows would need a different approach — not something
 either the old Tk version or this one handles.)
 
+## How opening several files at once is parallelized
+
+Opening a directory can mean opening dozens of files at once, and doing
+that one after another on the GUI thread -- h5py.File(...) plus reading
+the root group's immediate children for the sidebar, for every file,
+before any of it is shown -- is what made that feel slow, especially
+when most of the time is I/O *wait* (a slow disk, a network drive, or a
+WSL path crossing the 9p boundary into Windows) rather than actual CPU
+work, since none of those waits overlap.
+
+`core/file_loader.py`'s `MultiFileLoader` runs each file's open on its
+own thread from a small pool (capped at 8 workers -- see its docstring
+for why more threads than that wouldn't help: HDF5 serializes actual
+library calls behind its own global lock regardless of thread count, so
+this is about overlapping I/O wait, not CPU parallelism). Results come
+back through a queue, labeled with their original index, in whatever
+order they actually finish -- not necessarily the order the files were
+given in.
+
+`App` polls that queue on a `QTimer` (same "background thread + queue +
+UI-thread poll" shape as `DatasetSource`, just for opening files instead
+of reading rows) and, as each result arrives, turns the corresponding
+placeholder row in `HierarchyTree` (reserved up front by `begin_loading`,
+in the *original*, stable order -- so the sidebar doesn't reshuffle as
+files race to finish) into a real root via `resolve_root`, or marks it
+failed via `resolve_error`. Whichever file happens to finish loading
+first is auto-expanded and selected, so there's something to look at (and
+navigate) immediately instead of waiting for every file, including
+however many are still mid-flight.
+
+Root items are also lazy now, the same dummy-child trick already used
+for every other group: `resolve_root` only needs the cheap root-level
+child *count* (for the expand arrow), not a full immediate-children
+listing with per-child shape/dtype -- that only happens once a root is
+actually expanded, which by default is just the one auto-selected file,
+not all N.
+
 ## Project layout
 
 ```
@@ -89,6 +126,7 @@ src/
   core/
     h5_model.py                 lazy h5py navigation, column-layout logic
     dataset_source.py           threaded, cached, chunked row reader
+    file_loader.py               thread-pooled opener for several files at once
   widgets/
     title_bar.py                 custom frameless-window title bar
     file_open_dialog.py           custom-styled "Open File" QDialog

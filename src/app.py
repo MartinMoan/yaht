@@ -24,7 +24,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
 )
 
 from constants import APP_NAME, H5_SUFFIXES
+from core.file_loader import MultiFileLoader
 from core.h5_model import H5Model, H5ModelError, NodeInfo
 from theme import Palette, ThemeManager
 from widgets.dataset_tabs import DatasetTabsView
@@ -60,6 +61,22 @@ class App(FramelessWindowMixin, QWidget):
         # directory passed on the command line or picked via "Open"
         # without selecting one specific file (see open_paths).
         self.models: list[H5Model] = []
+        # Opening several files happens on a background thread pool (see
+        # core/file_loader.py) so the GUI thread is never blocked waiting
+        # for the slowest one -- this timer polls for files as they
+        # finish, in whatever order that happens to be. None when nothing
+        # is currently loading.
+        self._loader: Optional[MultiFileLoader] = None
+        self._load_poll_timer = QTimer(self)
+        self._load_poll_timer.setInterval(30)
+        self._load_poll_timer.timeout.connect(self._poll_loader)
+        # A load superseded by a newer open_paths() call before it
+        # finished -- its threads can't be interrupted mid-open, so
+        # models it still produces are just closed as they arrive
+        # instead of being shown (see _cancel_loading/_poll_loader).
+        self._orphaned_loaders: list[MultiFileLoader] = []
+        self._pending_errors: list[str] = []
+        self._first_root_selected = False
         self.theme = ThemeManager(QApplication.instance())
         self.theme.set_mode("dark")
 
@@ -174,7 +191,35 @@ class App(FramelessWindowMixin, QWidget):
         entry point, for the two ways a directory ends up here).
         De-duplicates by resolved path, so e.g. ``yaht a.h5 .`` (a.h5
         both named explicitly and found again via the directory scan)
-        doesn't open it twice."""
+        doesn't open it twice.
+
+        The actual h5py.File opens happen on a background thread pool,
+        not here -- see core/file_loader.py's docstring for why opening
+        several files sequentially on the GUI thread is what made this
+        feel slow in the first place. The sidebar fills in progressively
+        as each one finishes; see _poll_loader."""
+        resolved = self._resolve_paths(paths)
+        if not resolved:
+            return
+
+        self._cancel_loading()
+        self.dataset_tabs.clear_all()
+        for old_model in self.models:
+            old_model.close()
+        self.models = []
+        self._pending_errors = []
+        self._first_root_selected = False
+
+        self.tree.begin_loading([Path(p).name for p in resolved])
+        self.tree.tree.setFocus()
+        noun = "file" if len(resolved) == 1 else "files"
+        self.status_bar.set_path(None)
+        self.status_bar.set_message(f"Opening {len(resolved)} {noun}...")
+
+        self._loader = MultiFileLoader(resolved)
+        self._load_poll_timer.start()
+
+    def _resolve_paths(self, paths: list[str]) -> list[str]:
         resolved: list[str] = []
         seen: set[str] = set()
 
@@ -198,39 +243,55 @@ class App(FramelessWindowMixin, QWidget):
                     add(f)
             else:
                 add(candidate)
+        return resolved
 
-        if not resolved:
+    def _cancel_loading(self) -> None:
+        # Can't interrupt a thread mid-open, so a load already running
+        # when a new open_paths() call comes in is left to finish on its
+        # own -- just orphaned, so _poll_loader closes whatever it
+        # produces instead of adding it to the (by-then-replaced) sidebar.
+        if self._loader is not None and not self._loader.is_done():
+            self._orphaned_loaders.append(self._loader)
+        self._loader = None
+
+    def _poll_loader(self) -> None:
+        for orphan in list(self._orphaned_loaders):
+            for result in orphan.poll_updates():
+                if result.model is not None:
+                    result.model.close()
+            if orphan.is_done():
+                self._orphaned_loaders.remove(orphan)
+
+        if self._loader is None:
+            if not self._orphaned_loaders:
+                self._load_poll_timer.stop()
             return
 
-        new_models: list[H5Model] = []
-        errors: list[str] = []
-        for path in resolved:
-            try:
-                new_models.append(H5Model(path))
-            except Exception as exc:  # noqa: BLE001 - surface any h5py/OS error to the user
-                errors.append(f"{Path(path).name}: {exc}")
+        for result in self._loader.poll_updates():
+            if result.model is not None:
+                self.models.append(result.model)
+                root_item = self.tree.resolve_root(result.index, result.model)
+                if not self._first_root_selected:
+                    self.tree.expand_and_select(root_item)
+                    self._first_root_selected = True
+            else:
+                self._pending_errors.append(f"{Path(result.path).name}: {result.error}")
+                self.tree.resolve_error(result.index, result.error or "")
 
-        if not new_models:
-            self.status_bar.set_message(f"Could not open file(s): {'; '.join(errors)}", is_error=True)
-            return
-
-        self.dataset_tabs.clear_all()
-        for old_model in self.models:
-            old_model.close()
-
-        self.models = new_models
-        self.tree.load_files(self.models)
-        if len(self.models) == 1:
-            self.status_bar.set_path(self.models[0].path)
-            self.status_bar.set_message("File loaded")
-        else:
-            self.status_bar.set_path(None)
-            self.status_bar.set_message(f"Loaded {len(self.models)} files")
-        if errors:
-            self.status_bar.set_message(f"Some files failed to open: {'; '.join(errors)}", is_error=True)
-        # So the user can start navigating the hierarchy with arrow keys
-        # right away, without first having to click into the sidebar.
-        self.tree.tree.setFocus()
+        if self._loader.is_done():
+            self._loader = None
+            n = len(self.models)
+            if n == 1:
+                self.status_bar.set_path(self.models[0].path)
+                self.status_bar.set_message("File loaded")
+            elif n > 1:
+                self.status_bar.set_message(f"Loaded {n} files")
+            if self._pending_errors:
+                self.status_bar.set_message(f"Some files failed to open: {'; '.join(self._pending_errors)}", is_error=True)
+            elif n == 0:
+                self.status_bar.set_message("Could not open file(s)", is_error=True)
+            if not self._orphaned_loaders:
+                self._load_poll_timer.stop()
 
     def _on_node_selected(self, model: H5Model, node: NodeInfo) -> None:
         self._open_node(model, node, permanent=False)
@@ -264,6 +325,7 @@ class App(FramelessWindowMixin, QWidget):
 
     def closeEvent(self, event) -> None:
         self._teardown_frameless()
+        self._load_poll_timer.stop()
         self.dataset_tabs.clear_all()
         for model in self.models:
             model.close()
