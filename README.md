@@ -62,16 +62,19 @@ python3 -m venv .venv
 ## Install (build from source)
 
 Builds a real standalone copy with PyInstaller and installs it for your
-user account — no admin/sudo rights needed. Detects an existing install
-first and asks before touching it (uninstall-and-continue, or abort).
+user account like a normal app — findable from Windows Start Menu
+search / the Linux application launcher's search, not just a folder you
+have to remember to go dig through. No admin/sudo rights needed. Detects
+an existing install first and asks before touching it
+(uninstall-and-continue, or abort).
 
 - **Windows:** double-click `scripts/install.bat`.
 - **Linux:** run `./scripts/install.sh` in a terminal.
 
-| OS | Installed to | Shortcut |
-|----|--------------|----------|
-| Windows | `%LOCALAPPDATA%\Programs\YAHT` | Start Menu entry ("YAHT" and "Uninstall YAHT") |
-| Linux | `~/.local/share/yaht` | Application-menu entry, plus a `yaht` command on `~/.local/bin` |
+| OS | Installed to | Appears in search via |
+|----|--------------|------------------------|
+| Windows | `%LOCALAPPDATA%\Programs\YAHT` | A Start Menu shortcut ("YAHT" and "Uninstall YAHT") — the same mechanism any per-user Windows installer uses |
+| Linux | `~/.local/share/yaht` | A `~/.local/share/applications/yaht.desktop` entry — the standard freedesktop.org mechanism GNOME/KDE/XFCE search all read from — plus a `yaht` command on `~/.local/bin` |
 
 To uninstall later without re-running the installer: use the "Uninstall
 YAHT" Start Menu shortcut (Windows), or run

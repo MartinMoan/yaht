@@ -10,7 +10,20 @@ cd "$(dirname "$0")/.."
 APP_NAME="YAHT"
 INSTALL_DIR="$HOME/.local/share/yaht"
 BIN_LINK="$HOME/.local/bin/yaht"
-DESKTOP_FILE="$HOME/.local/share/applications/yaht.desktop"
+DESKTOP_DIR="$HOME/.local/share/applications"
+DESKTOP_FILE="$DESKTOP_DIR/yaht.desktop"
+
+# Nudges the desktop environment to re-scan $DESKTOP_DIR immediately, so
+# the app appears in (or disappears from) app search right away instead
+# of waiting for whatever refresh cycle the desktop environment uses on
+# its own. Not every system has this installed (e.g. minimal/headless
+# setups with no desktop environment at all) -- harmless no-op there,
+# since such a system has no app search to update.
+refresh_desktop_db() {
+    if command -v update-desktop-database >/dev/null 2>&1; then
+        update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
+    fi
+}
 
 if [ -d "$INSTALL_DIR" ]; then
     echo "An existing $APP_NAME installation was found at $INSTALL_DIR."
@@ -21,6 +34,7 @@ if [ -d "$INSTALL_DIR" ]; then
             rm -rf "$INSTALL_DIR"
             rm -f "$BIN_LINK"
             rm -f "$DESKTOP_FILE"
+            refresh_desktop_db
             ;;
         *)
             echo "Aborting install. Nothing was changed."
@@ -52,16 +66,17 @@ exec "$INSTALL_DIR/YAHT" "\$@"
 LAUNCHER
 chmod +x "$BIN_LINK"
 
-mkdir -p "$(dirname "$DESKTOP_FILE")"
+mkdir -p "$DESKTOP_DIR"
 cat > "$DESKTOP_FILE" <<DESKTOP
 [Desktop Entry]
 Type=Application
 Name=$APP_NAME
 Comment=Yet Another Hdf5 Tool -- HDF5 file viewer
-Exec=$INSTALL_DIR/YAHT %f
+Exec="$INSTALL_DIR/YAHT" %f
 Terminal=false
 Categories=Utility;Science;
 DESKTOP
+refresh_desktop_db
 
 # A standalone uninstaller inside the install dir -- the source repo
 # (and this script) don't need to still be around to uninstall later.
@@ -70,6 +85,9 @@ cat > "$INSTALL_DIR/uninstall.sh" <<UNINSTALLER
 rm -rf "$INSTALL_DIR"
 rm -f "$BIN_LINK"
 rm -f "$DESKTOP_FILE"
+if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
+fi
 echo "$APP_NAME uninstalled."
 UNINSTALLER
 chmod +x "$INSTALL_DIR/uninstall.sh"
@@ -77,5 +95,7 @@ chmod +x "$INSTALL_DIR/uninstall.sh"
 echo
 echo "$APP_NAME installed."
 echo "Launch it from your application menu, or run: yaht"
+echo "(if it doesn't show up in search immediately, that's your desktop"
+echo "environment's own app-search index catching up, not a failed install)"
 echo "(if 'yaht' isn't found, ~/.local/bin may not be on PATH yet -- restart your terminal or log back in)"
 echo "To uninstall later: $INSTALL_DIR/uninstall.sh"
