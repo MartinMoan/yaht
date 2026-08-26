@@ -114,6 +114,44 @@ listing with per-child shape/dtype -- that only happens once a root is
 actually expanded, which by default is just the one auto-selected file,
 not all N.
 
+**A subtle race worth knowing about if this code changes**:
+`App._poll_loader` checks `MultiFileLoader.is_done()` *before* draining
+its queue, not after. A worker always puts its result on the queue
+before incrementing the counter `is_done()` reads, so once that read
+comes back true, every result is *already* queued and an immediate
+drain is guaranteed to see all of them. Checking the other way around
+(drain, then ask "done yet?") has a real race: a result landing in the
+gap between the drain and the done-check would make `is_done()` true
+anyway, and that file's result -- along with every other file still
+mid-open at that instant -- would end up sitting in a queue nothing
+ever reads from again, since the loader reference gets dropped right
+after. That exact bug once left some files stuck as permanently-loading
+placeholders, more often the more files were opened at once (more
+workers finishing close together around when `is_done()` happened to
+be checked) and the more per-file latency varied (a slow filesystem
+mount widens the gap between "some workers finished" and "the last one
+finished").
+
+**Per-file progress**: each file is actually opened *twice*.
+`MultiFileLoader` first opens it through `_CountingReader`, a
+byte-counting file-like wrapper passed to h5py as its backing "file
+object" (`h5py.File(reader, "r")`) purely so the sidebar can show real
+"N% read" progress next to a still-loading file's name (`HierarchyTree.
+update_loading_progress`) -- HDF5's own file open doesn't expose
+progress on its own. That probe is closed again right after reading the
+root group's immediate-children count; the `H5Model` actually kept for
+the rest of that file's open lifetime, including every later dataset
+read, comes from a second, plain open with no wrapper. h5py can't swap
+a File's backing driver after opening, so keeping the counting wrapper
+around instead would route every future dataset read through a
+Python-level file object too -- a real cost for exactly the large
+datasets this app cares about handling well, just to keep a progress
+indicator alive for a file that's long since finished loading. Once
+resolved, a root's row shows its file size (`format_utils.format_size`)
+instead of "100%" -- root-level metadata is normally a tiny fraction of
+a file's total size, since dataset *content* is never read up front, so
+the percentage itself would rarely reach anywhere near 100 on its own.
+
 ## Project layout
 
 ```
@@ -123,6 +161,7 @@ src/
   theme.py                      Fusion style, QPalette, light/dark detection
   constants.py                  sizing + column color palette
   icons.py                      Pillow-drawn icons -> QPixmap/QIcon
+  format_utils.py               human-readable byte sizes (e.g. "118 KB")
   core/
     h5_model.py                 lazy h5py navigation, column-layout logic
     dataset_source.py           threaded, cached, chunked row reader

@@ -13,6 +13,7 @@ from PySide6.QtWidgets import QAbstractItemView, QHeaderView, QTreeView, QVBoxLa
 import constants
 import icons
 from core.h5_model import DATASET, GROUP, H5Model, NodeInfo
+from format_utils import format_size
 from theme import Palette, ThemeManager
 
 ICON_SIZE = 15
@@ -66,8 +67,14 @@ class HierarchyTree(QWidget):
         # Placeholder root rows reserved by begin_loading, index-aligned
         # with the paths a load was started with -- see resolve_root/
         # resolve_error, which turn each into a real (or failed) root as
-        # its file finishes opening in the background.
+        # its file finishes opening in the background. _loading_names
+        # keeps the plain filename around separately from the item's own
+        # (mutable, progress-suffixed) text, and _failed_indices tells
+        # update_loading_progress to stop touching a row once
+        # resolve_error has claimed it.
         self._loading_items: list[QStandardItem] = []
+        self._loading_names: list[str] = []
+        self._failed_indices: set[int] = set()
         self._palette: Palette = theme.palette
         # Otherwise transparent, so the top/left layout margin below would
         # expose App's own (darker) background rather than the tree's own
@@ -115,7 +122,8 @@ class HierarchyTree(QWidget):
         fill in in whatever order the threads happen to finish) while
         that's in progress. Each placeholder is later turned into a real
         root by resolve_root, or marked failed by resolve_error, by
-        index -- see App._poll_loader."""
+        index -- see App._poll_loader, which also drives
+        update_loading_progress for whichever ones are still pending."""
         self.clear()
         for name in filenames:
             item = QStandardItem(name)
@@ -124,22 +132,39 @@ class HierarchyTree(QWidget):
             item.setIcon(icons.icon(GROUP, self._palette.subtext, ICON_SIZE))
             self.model.appendRow(item)
             self._loading_items.append(item)
+            self._loading_names.append(name)
         self._apply_min_width()
 
-    def resolve_root(self, index: int, model: H5Model) -> QStandardItem:
+    def update_loading_progress(self, index: int, bytes_read: int, total_size: int) -> None:
+        """Shows live "N% read" next to a still-loading placeholder's
+        filename. A no-op once that row has actually resolved or failed
+        (resolve_root/resolve_error take over its text at that point)."""
+        if index in self._failed_indices:
+            return
+        item = self._loading_items[index]
+        if item.data(MODEL_ROLE) is not None:
+            return
+        percent = int(bytes_read / total_size * 100) if total_size else 0
+        item.setText(f"{self._loading_names[index]}   {min(percent, 99)}%")
+
+    def resolve_root(self, index: int, model: H5Model, root_info: NodeInfo, size: int) -> QStandardItem:
         """Turns the placeholder at ``index`` (see begin_loading) into a
         real, expandable root for ``model``, lazily -- same dummy-child
         trick as any other group, so opening e.g. 20 files up front only
-        means 20 fast H5Model/root-child-count opens, not 20 full
-        immediate-children listings; only the file(s) actually expanded
-        (at minimum, whichever one is shown by default -- see
-        App._poll_loader) pay for that."""
+        means 20 fast opens, not 20 full immediate-children listings;
+        only the file(s) actually expanded (at minimum, whichever one is
+        shown by default -- see App._poll_loader) pay for that.
+
+        ``root_info`` and ``size`` come pre-computed from the background
+        loader (core/file_loader.py) rather than being read here -- this
+        method touches no h5py state at all, just Qt objects, so it's
+        safe (and fast) to call straight from the GUI thread."""
         item = self._loading_items[index]
         item.setEnabled(True)
-        root_info = model.root_info()
         item.setData(root_info, NODE_ROLE)
         item.setData(model, MODEL_ROLE)
         item.setIcon(icons.icon(root_info.kind, self._icon_color(root_info.kind), ICON_SIZE))
+        item.setText(f"{self._loading_names[index]}   {format_size(size)}")
         self._items[(model, "/")] = item
         if (root_info.n_children or 0) > 0:
             dummy = QStandardItem("")
@@ -153,8 +178,9 @@ class HierarchyTree(QWidget):
         """Marks the placeholder at ``index`` as failed to open -- left
         in the sidebar (not removed) so it's still obvious which file
         that was, distinct from one that's still loading."""
+        self._failed_indices.add(index)
         item = self._loading_items[index]
-        item.setText(f"{item.text()}  — failed to open")
+        item.setText(f"{self._loading_names[index]}  — failed to open")
         item.setToolTip(message)
         warn_color = constants.WARN_COLOR_DARK if self._palette.dark else constants.WARN_COLOR_LIGHT
         item.setIcon(icons.icon(GROUP, warn_color, ICON_SIZE))
@@ -171,6 +197,8 @@ class HierarchyTree(QWidget):
         self.model.removeRows(0, self.model.rowCount())
         self._items.clear()
         self._loading_items = []
+        self._loading_names = []
+        self._failed_indices = set()
 
     def select_path(self, model: H5Model, path: str) -> None:
         """Programmatically reveal and select ``path`` within ``model``,

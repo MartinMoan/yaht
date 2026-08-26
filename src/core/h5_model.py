@@ -11,6 +11,7 @@ from __future__ import annotations
 import itertools
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
 
 import h5py
 import numpy as np
@@ -67,9 +68,21 @@ class H5Model:
     through a single worker thread per open file, see ``dataset_source``).
     """
 
-    def __init__(self, path: str):
+    def __init__(self, path: str, file: Optional[h5py.File] = None):
+        # `file`, if given, is used as-is instead of opening `path`
+        # ourselves -- see core/file_loader.py's progress-tracked probe
+        # open, which passes in a File already opened against a
+        # byte-counting wrapper. Deliberately *not* used for the real,
+        # long-lived H5Model apps actually browse/read datasets through:
+        # h5py can't swap a File's backing driver after opening, so
+        # keeping the counting wrapper around would route every later
+        # dataset read through it too, for the file's entire lifetime --
+        # a real cost for exactly the large datasets this app cares
+        # about handling well. The probe is opened, measured, and closed
+        # again; a second, plain open (no wrapper) is what callers
+        # actually keep.
         self.path = str(Path(path).expanduser().resolve())
-        self.file = h5py.File(self.path, "r")
+        self.file = file if file is not None else h5py.File(self.path, "r")
 
     def close(self) -> None:
         try:

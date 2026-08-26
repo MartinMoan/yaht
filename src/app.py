@@ -77,6 +77,11 @@ class App(FramelessWindowMixin, QWidget):
         self._orphaned_loaders: list[MultiFileLoader] = []
         self._pending_errors: list[str] = []
         self._first_root_selected = False
+        # Indices from the current load that haven't resolved or failed
+        # yet -- what _poll_loader shows live "N% read" progress for
+        # each tick (see MultiFileLoader.progress), and what's left once
+        # a result arrives for that index.
+        self._pending_indices: set[int] = set()
         self.theme = ThemeManager(QApplication.instance())
         self.theme.set_mode("dark")
 
@@ -209,6 +214,7 @@ class App(FramelessWindowMixin, QWidget):
         self.models = []
         self._pending_errors = []
         self._first_root_selected = False
+        self._pending_indices = set(range(len(resolved)))
 
         self.tree.begin_loading([Path(p).name for p in resolved])
         self.tree.tree.setFocus()
@@ -255,11 +261,24 @@ class App(FramelessWindowMixin, QWidget):
         self._loader = None
 
     def _poll_loader(self) -> None:
+        # is_done() is checked *before* draining each loader's queue, not
+        # after -- a worker always puts its result on the queue before
+        # incrementing the counter is_done() reads, so once that read
+        # comes back true, every result is *already* queued and this
+        # drain is guaranteed to see all of them. Checking the other way
+        # around (drain, then ask "done yet?") has a real race: a result
+        # that lands in the gap between the drain and the done-check
+        # would report done anyway, and that file's result -- along with
+        # every other file still mid-open at that instant -- would sit
+        # in a queue nothing ever reads from again, since the loader
+        # reference gets dropped right after. That's exactly what was
+        # leaving some files stuck as permanently-loading placeholders.
         for orphan in list(self._orphaned_loaders):
+            orphan_done = orphan.is_done()
             for result in orphan.poll_updates():
                 if result.model is not None:
                     result.model.close()
-            if orphan.is_done():
+            if orphan_done:
                 self._orphaned_loaders.remove(orphan)
 
         if self._loader is None:
@@ -267,10 +286,16 @@ class App(FramelessWindowMixin, QWidget):
                 self._load_poll_timer.stop()
             return
 
+        done = self._loader.is_done()
+        for index in self._pending_indices:
+            bytes_read, total_size = self._loader.progress(index)
+            self.tree.update_loading_progress(index, bytes_read, total_size)
+
         for result in self._loader.poll_updates():
+            self._pending_indices.discard(result.index)
             if result.model is not None:
                 self.models.append(result.model)
-                root_item = self.tree.resolve_root(result.index, result.model)
+                root_item = self.tree.resolve_root(result.index, result.model, result.root_info, result.size)
                 if not self._first_root_selected:
                     self.tree.expand_and_select(root_item)
                     self._first_root_selected = True
@@ -278,7 +303,7 @@ class App(FramelessWindowMixin, QWidget):
                 self._pending_errors.append(f"{Path(result.path).name}: {result.error}")
                 self.tree.resolve_error(result.index, result.error or "")
 
-        if self._loader.is_done():
+        if done:
             self._loader = None
             n = len(self.models)
             if n == 1:
