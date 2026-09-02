@@ -6,9 +6,18 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable, Optional
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QFontMetrics, QStandardItem, QStandardItemModel
-from PySide6.QtWidgets import QAbstractItemView, QHeaderView, QTreeView, QVBoxLayout, QWidget
+from PySide6.QtCore import QRect, QRectF, Qt
+from PySide6.QtGui import QColor, QFontMetrics, QPainter, QStandardItem, QStandardItemModel
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QHeaderView,
+    QStyle,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
+    QTreeView,
+    QVBoxLayout,
+    QWidget,
+)
 
 import constants
 import icons
@@ -17,6 +26,7 @@ from format_utils import format_size
 from theme import Palette, ThemeManager
 
 ICON_SIZE = 15
+_HL_RADIUS = 6  # corner radius of the row hover/selection pill
 NODE_ROLE = Qt.ItemDataRole.UserRole + 1
 DUMMY_ROLE = Qt.ItemDataRole.UserRole + 2
 # Which H5Model a given item belongs to -- needed once more than one
@@ -40,6 +50,100 @@ def _shape_summary(node: NodeInfo) -> str:
     if node.n_children == 1:
         return "1 item"
     return f"{node.n_children} items"
+
+
+class _NoSelectionFillDelegate(QStyledItemDelegate):
+    """Stops each cell from painting the style's flat ``Highlight``
+    rectangle -- ``_Tree.drawRow`` draws the rounded pill for the row
+    instead."""
+
+    def paint(self, painter, option, index) -> None:
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        opt.state &= ~QStyle.StateFlag.State_Selected
+        opt.state &= ~QStyle.StateFlag.State_MouseOver
+        super().paint(painter, opt, index)
+
+
+class _Tree(QTreeView):
+    """Draws the hover/selection highlight as one rounded pill at a fixed
+    horizontal position -- same width for a root row or a deeply nested
+    one, and it never touches the branch column so the expand carets stay
+    put. (Styling ``QTreeView::branch`` to suppress the flat highlight
+    would drop the carets; ``QTreeView::item`` background can't round
+    across the indent.)"""
+
+    _PILL_LEFT = 2
+    _PILL_RIGHT_INSET = 6
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._hl_selected = QColor("#343941")
+        self._hl_hover = QColor("#161B22")
+        self._hover_row = (-1, None)  # (row, parent) under the pointer
+        self.setItemDelegate(_NoSelectionFillDelegate(self))
+        self.setMouseTracking(True)
+
+    def set_highlight_colors(self, selected: str, hover: str) -> None:
+        self._hl_selected = QColor(selected)
+        self._hl_hover = QColor(hover)
+        self.viewport().update()
+
+    def mouseMoveEvent(self, event) -> None:
+        idx = self.indexAt(event.position().toPoint())
+        key = (idx.row(), idx.parent()) if idx.isValid() else (-1, None)
+        if key != self._hover_row:
+            self._hover_row = key
+            self.viewport().update()
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        if self._hover_row != (-1, None):
+            self._hover_row = (-1, None)
+            self.viewport().update()
+        super().leaveEvent(event)
+
+    def drawRow(self, painter: QPainter, option, index) -> None:
+        sm = self.selectionModel()
+        # drawRow's own option.state doesn't reliably carry the selected /
+        # hovered flags for the row, so resolve them ourselves.
+        selected = sm is not None and sm.isSelected(index)
+        hovered = self._hover_row == (index.row(), index.parent())
+
+        if selected or hovered:
+            r = option.rect
+            rect = QRectF(
+                float(r.left() + self._PILL_LEFT),
+                float(r.top() + 1),
+                float(r.width() - self._PILL_LEFT - self._PILL_RIGHT_INSET),
+                float(r.height() - 2),
+            )
+            painter.save()
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(self._hl_selected if selected else self._hl_hover)
+            painter.drawRoundedRect(rect, _HL_RADIUS, _HL_RADIUS)
+            painter.restore()
+
+        # Draw the row's own bits by hand rather than via super().drawRow():
+        # QTreeView.drawRow fills the branch column with a full-height flat
+        # Highlight rect (regardless of the option's state), which showed as
+        # a 1px step where it met the pill just past the caret. drawBranches
+        # on its own only paints the indent guides + expand caret, no fill.
+        item_rect = self.visualRect(index)
+        branch_rect = QRect(
+            option.rect.left(),
+            option.rect.top(),
+            item_rect.left() - option.rect.left(),
+            option.rect.height(),
+        )
+        self.drawBranches(painter, branch_rect, index)
+
+        item_opt = QStyleOptionViewItem(option)
+        item_opt.rect = item_rect
+        item_opt.state &= ~QStyle.StateFlag.State_Selected
+        item_opt.state &= ~QStyle.StateFlag.State_MouseOver
+        self.itemDelegate().paint(painter, item_opt, index)
 
 
 class HierarchyTree(QWidget):
@@ -84,11 +188,16 @@ class HierarchyTree(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(4, 10, 0, 4)
+        # All four insets are >= the panel radius: the panel isn't
+        # masked, so a full-width hover/selection row painted by the
+        # QTreeView would otherwise poke past the antialiased
+        # border-radius into a square corner. The title bar's left text
+        # margin is tuned to match this inset (see title_bar.py).
+        layout.setContentsMargins(10, 12, 10, 10)
 
         self.model = QStandardItemModel()
 
-        self.tree = QTreeView()
+        self.tree = _Tree()
         self.tree.setModel(self.model)
         self.tree.setHeaderHidden(True)
         self.tree.setUniformRowHeights(True)
@@ -331,10 +440,27 @@ class HierarchyTree(QWidget):
 
     def _apply_palette(self, palette: Palette) -> None:
         self._palette = palette
-        self.setStyleSheet(f"HierarchyTree {{ background-color: {palette.base_bg}; }}")
+        # Rounded, hairline-bordered card (like #contentPanel in app.py).
+        # Filled with the darker sidebar colour; the styled border-radius
+        # clips the widget's square corners so only the antialiased arc
+        # shows, and the clipped-away corner wedges fall back to the
+        # window_bg gap behind -- no colour mismatch there.
+        self.setStyleSheet(
+            f"""
+            HierarchyTree {{
+                background-color: {palette.sidebar_bg};
+                border: {constants.BORDER_WIDTH}px solid {palette.border};
+                border-radius: {constants.PANEL_RADIUS}px;
+            }}
+            """
+        )
+        # No ::item / ::branch fill rules -- _Tree.drawRow paints the
+        # rounded pill itself (fixed width, clear of the caret column).
+        # An explicit transparent ::item background keeps the styled
+        # style from filling a flat rectangle over that pill.
         self.tree.setStyleSheet(f"""
             QTreeView {{
-                background-color: {palette.base_bg};
+                background-color: {palette.sidebar_bg};
                 color: {palette.text};
                 border: none;
                 outline: 0;
@@ -342,15 +468,10 @@ class HierarchyTree(QWidget):
             }}
             QTreeView::item {{
                 height: 26px;
-            }}
-            QTreeView::item:hover {{
-                background-color: {palette.row_hover};
-            }}
-            QTreeView::item:selected {{
-                background-color: {palette.selection};
-                color: {palette.text};
+                background: transparent;
             }}
         """)
+        self.tree.set_highlight_colors(palette.selection, palette.row_hover)
         for item in self._items.values():
             node = item.data(NODE_ROLE)
             if node is not None:

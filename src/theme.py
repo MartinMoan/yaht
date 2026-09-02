@@ -41,10 +41,27 @@ class Palette:
         self.splitter = c.SPLITTER_DARK if dark else c.SPLITTER_LIGHT
         self.columns = c.COLUMN_PALETTE_DARK if dark else c.COLUMN_PALETTE_LIGHT
         self.chart_series = c.CHART_SERIES_DARK if dark else c.CHART_SERIES_LIGHT
+        self.error = c.ERROR_COLOR_DARK if dark else c.ERROR_COLOR_LIGHT
+        # Shared surface of *both* framed panels (explorer + content) --
+        # index 0 of the column palette, the darkest surface in the app.
+        # The rounded panel widgets don't paint their own corners (a
+        # styled border-radius clips them), so the corner wedges just show
+        # the window_bg gap behind, with no colour mismatch.
         self.body_bg = self.columns[0]
-        self.window_bg = "#1E1E1E" if dark else "#F5F5F7"
-        self.base_bg = "#242424" if dark else "#FFFFFF"
-        self.button_bg = "#2A2A2A" if dark else "#EDEDF0"
+        self.sidebar_bg = self.body_bg
+        # An element raised above that surface: unselected tabs, table
+        # headers, group-overview rows.
+        self.raised_bg = c.RAISED_BG_DARK if dark else c.RAISED_BG_LIGHT
+        # Everything *outside* the panels: the window frame, the gap
+        # around and between them, and the title bar.
+        self.window_bg = "#0D1117" if dark else "#F5F5F7"
+        self.base_bg = "#0D1117" if dark else "#FFFFFF"
+        self.button_bg = "#21262D" if dark else "#EDEDF0"
+        # Semantic alias -- GRID_LINE_* doubles as the theme's border
+        # color for every hairline in the app (panel borders, menu
+        # borders, table gridlines, ...).
+        self.border = self.grid_line
+        self.radius = c.PANEL_RADIUS
 
     def column_color(self, index: int) -> str:
         return self.columns[index % len(self.columns)]
@@ -124,8 +141,12 @@ class ThemeManager(QObject):
         qp.setColor(Role.Text, QColor(p.text))
         qp.setColor(Role.Button, QColor(p.button_bg))
         qp.setColor(Role.ButtonText, QColor(p.text))
-        qp.setColor(Role.Highlight, QColor(p.accent))
-        qp.setColor(Role.HighlightedText, QColor("#FFFFFF"))
+        # `selection`, not `accent`: this is the flat highlight the style
+        # paints behind selected rows / text runs / the tree's branch
+        # column, and it needs to match the rounded selection pills the
+        # sidebar and the tab bar draw with `palette.selection`.
+        qp.setColor(Role.Highlight, QColor(p.selection))
+        qp.setColor(Role.HighlightedText, QColor(p.text))
         qp.setColor(Role.ToolTipBase, QColor(p.base_bg))
         qp.setColor(Role.ToolTipText, QColor(p.text))
         qp.setColor(Role.PlaceholderText, QColor(p.subtext))

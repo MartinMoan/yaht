@@ -34,10 +34,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+import constants as c
 from constants import APP_NAME, H5_SUFFIXES
 from core.file_loader import MultiFileLoader
 from core.h5_model import H5Model, H5ModelError, NodeInfo
 from theme import Palette, ThemeManager
+from widgets.content_panel import ContentPanel
 from widgets.dataset_tabs import DatasetTabsView
 from widgets.file_open_dialog import FileOpenDialog
 from widgets.frameless import FramelessWindowMixin
@@ -53,6 +55,12 @@ class App(FramelessWindowMixin, QWidget):
     def __init__(self, initial_paths: Optional[list[str]] = None):
         super().__init__()
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        # Lets the rounded corners of #windowFrame (drawn antialiased by
+        # the stylesheet engine) show the desktop through, instead of a
+        # 1-bit setMask which came out visibly stair-stepped. The window
+        # rect still receives events in the transparent corners, so the
+        # edge-resize grab zones keep working there.
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setWindowTitle(APP_NAME)
         self.setMinimumSize(_MIN_W, _MIN_H)
         self.resize(_DEFAULT_W, _DEFAULT_H)
@@ -85,12 +93,41 @@ class App(FramelessWindowMixin, QWidget):
         self.theme = ThemeManager(QApplication.instance())
         self.theme.set_mode("dark")
 
-        self._outer_layout = QVBoxLayout(self)
+        # The window is drawn as one rounded, hairline-bordered card
+        # (matching the "GitHub Dark Default" panel look). ``#windowFrame``
+        # fills the whole (translucent) window and its stylesheet paints
+        # the rounded background + 1px border antialiased; the corners
+        # outside that radius stay transparent. Its 1px border also insets
+        # its own children by a pixel, so nothing paints over the border.
+        # The only full-width children that reach the window's rounded
+        # corners are the title bar (top) and status bar (bottom): the
+        # title bar rounds its own top corners to match; the status bar
+        # has no background of its own so the frame shows through. Maximized
+        # flattens the frame back to a plain rect -- see ``_apply_frame_style``.
+        self._shell_layout = QVBoxLayout(self)
+        self._shell_layout.setContentsMargins(0, 0, 0, 0)
+        self._shell_layout.setSpacing(0)
+        self._shell_layout.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
+
+        self._frame = QWidget()
+        self._frame.setObjectName("windowFrame")
+        # Opaque (styled bg only, NOT translucent): its stylesheet fills
+        # the rounded rect solidly everywhere inside the radius -- gaps
+        # between the panels included -- while painting nothing outside
+        # it, so the translucent App shows the desktop through the
+        # rounded corners. Giving the frame itself WA_TranslucentBackground
+        # instead leaves it see-through wherever no opaque child covers it.
+        self._frame.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self._shell_layout.addWidget(self._frame)
+
+        self._outer_layout = QVBoxLayout(self._frame)
         outer = self._outer_layout
-        # Flush with the window edges (VS Code-style) -- no reserved
-        # border. See the module docstring for how edge-resize works
-        # without one.
-        outer.setContentsMargins(0, 0, 0, 0)
+        # Inset every child by the border width: a QSS border doesn't
+        # reserve contentsRect space here, so without this the opaque
+        # title bar paints over the frame's top (and upper side) border
+        # and the window outline stops below the title bar instead of
+        # wrapping it.
+        outer.setContentsMargins(c.BORDER_WIDTH, c.BORDER_WIDTH, c.BORDER_WIDTH, c.BORDER_WIDTH)
         outer.setSpacing(0)
         # Qt's default top-level-layout behavior propagates this layout's
         # computed size hints up to the *window's* own min/max size
@@ -147,20 +184,44 @@ class App(FramelessWindowMixin, QWidget):
         geo = screen.availableGeometry()
         self.move(geo.center().x() - self.width() // 2, geo.center().y() - self.height() // 2)
 
+    # -- rounded window frame -------------------------------------------
+
+    def _apply_frame_style(self) -> None:
+        p = self.theme.palette
+        if getattr(self, "_maximized", False):
+            self._frame.setStyleSheet(
+                f"#windowFrame {{ background-color: {p.window_bg}; border: none; border-radius: 0; }}"
+            )
+        else:
+            self._frame.setStyleSheet(
+                f"#windowFrame {{"
+                f" background-color: {p.window_bg};"
+                f" border: {c.BORDER_WIDTH}px solid {p.border};"
+                f" border-radius: {c.PANEL_RADIUS}px;"
+                f" }}"
+            )
+
     # -- layout ------------------------------------------------------
 
     def _build_body(self, outer: QVBoxLayout) -> None:
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         self.splitter.setChildrenCollapsible(False)
-        self.splitter.setHandleWidth(6)
+        # No visible sash between the two floating panel cards -- just the
+        # WINDOW_PADDING gap, with a hover tint for the drag affordance
+        # (see _apply_palette).
+        self.splitter.setHandleWidth(c.WINDOW_PADDING)
 
         self.tree = HierarchyTree(
             self.theme, on_select=self._on_node_selected, on_activate=self._on_node_activated
         )
         self.splitter.addWidget(self.tree)
 
-        right = QWidget()
+        self._content_panel = ContentPanel()
+        right = self._content_panel
         right_layout = QVBoxLayout(right)
+        # Fully flush -- the table reaches every edge. ContentPanel's
+        # own mouse-transparent overlay redraws the rounded 1px border
+        # and the corner cut-outs on top of whatever fills it.
         right_layout.setContentsMargins(0, 0, 0, 0)
         self.dataset_tabs = DatasetTabsView(
             self.theme,
@@ -174,7 +235,17 @@ class App(FramelessWindowMixin, QWidget):
         self.splitter.setStretchFactor(1, 1)
         self.splitter.setSizes([280, _DEFAULT_W - 280])
 
-        outer.addWidget(self.splitter, 1)
+        # WINDOW_PADDING all round so the panel cards float clear of the
+        # window's own border instead of stacking a second border against
+        # it. The title bar and status bar stay full-bleed above/below.
+        body = QWidget()
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(
+            c.WINDOW_PADDING, c.WINDOW_PADDING, c.WINDOW_PADDING, c.WINDOW_PADDING
+        )
+        body_layout.setSpacing(0)
+        body_layout.addWidget(self.splitter)
+        outer.addWidget(body, 1)
 
     # -- file lifecycle ------------------------------------------------
 
@@ -361,22 +432,35 @@ class App(FramelessWindowMixin, QWidget):
     # with the graph window -- see widgets/frameless.py.
 
     def _on_maximize_changed(self, maximized: bool) -> None:
+        # Rounded hairline when floating, flush square when maximized --
+        # the frame, the title bar's top corners and (implicitly) the
+        # status bar all follow suit.
         self.title_bar.set_maximized(maximized)
+        self._apply_frame_style()
 
     # -- theming ---------------------------------------------------------
 
     def _apply_palette(self, palette: Palette) -> None:
-        # header_bg, not window_bg: there's no reserved margin any more
-        # for this to show through, but it's still App's own background
-        # underneath every child widget, so keeping it matched to the
-        # title/status bar avoids even a one-frame flash of a mismatched
-        # color during resize/relayout.
+        self._apply_frame_style()
+        # Just the fill -- the rounded border and corner cut-outs are
+        # painted by ContentPanel's overlay (set_colors below) on top of
+        # the content, so a flush-filling table can't hide them.
+        self._content_panel.setStyleSheet(
+            f"#contentPanel {{ background-color: {palette.body_bg}; }}"
+        )
+        self._content_panel.frame.set_colors(palette.border, palette.window_bg)
+        # App itself is fully transparent (WA_TranslucentBackground) --
+        # everything visible is painted by #windowFrame and its children.
+        # #contentPanel carries the same rounded hairline as the explorer
+        # tree on the left, so the two panes read as matching framed
+        # cards floating on the window. The splitter sash is invisible
+        # until hovered -- the WINDOW_PADDING gap does the separating.
         self.setStyleSheet(
             f"""
-            App {{ background-color: {palette.header_bg}; }}
+            App {{ background-color: transparent; }}
             QWidget {{ color: {palette.text}; }}
             QSplitter::handle {{
-                background-color: {palette.splitter};
+                background-color: transparent;
             }}
             QSplitter::handle:hover {{
                 background-color: {palette.accent};

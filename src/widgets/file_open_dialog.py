@@ -387,7 +387,7 @@ class FileOpenDialog(FramelessWindowMixin, QDialog):
 
     def _apply_palette(self, palette: Palette) -> None:
         self._palette = palette
-        self.error_label.setStyleSheet("color: #FF6B6B; font-size: 9pt;")
+        self.error_label.setStyleSheet(f"color: {palette.error}; font-size: 9pt;")
         self.selection_label.setStyleSheet(f"color: {palette.subtext};")
         self.setStyleSheet(
             f"""

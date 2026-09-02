@@ -138,6 +138,10 @@ class DatasetTabsView(QWidget):
         self._tabs.setTabsClosable(True)
         self._tabs.setMovable(True)
         self._tabs.setDocumentMode(True)
+        # No base line under the tab strip -- the pane's own border-top
+        # is the only divider, and the selected tab is a filled pill
+        # rather than a strip that needs merging into a base.
+        self._tab_bar.setDrawBase(False)
         self._tabs.setUsesScrollButtons(True)
         self._tabs.currentChanged.connect(self._on_current_changed)
 
@@ -402,17 +406,30 @@ class DatasetTabsView(QWidget):
                 border: none;
                 border-top: 1px solid {palette.grid_line};
                 background-color: {palette.body_bg};
-                top: -1px;
             }}
+            /* Shift the whole strip in from the panel's rounded top-left
+               corner (the pane below is unaffected). */
+            QTabWidget::tab-bar {{
+                left: 8px;
+            }}
+            QTabBar {{
+                background: transparent;
+            }}
+            /* Uniform margins so every pill sits at the same height; the
+               generous top margin lifts them clear of the panel's top
+               border. */
             QTabBar::tab {{
-                background-color: {palette.header_bg};
-                padding: 6px 14px 6px 14px;
+                background: transparent;
+                padding: 5px 12px;
+                margin: 8px 3px 4px 3px;
                 border: none;
-                border-right: 1px solid {palette.grid_line};
+                border-radius: 6px;
+            }}
+            QTabBar::tab:first {{
+                margin-left: 6px;
             }}
             QTabBar::tab:selected {{
-                background-color: {palette.body_bg};
-                border-bottom: 2px solid {palette.accent};
+                background-color: {palette.selection};
             }}
             QTabBar::tab:hover:!selected {{
                 background-color: {palette.row_hover};

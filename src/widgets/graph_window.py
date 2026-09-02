@@ -72,7 +72,7 @@ _SKELETON_HTML = f"""
 <meta charset="utf-8">
 <script src="plotly.min.js"></script>
 <style>
-  html, body {{ margin: 0; padding: 0; height: 100%; }}
+  html, body {{ margin: 0; padding: 0; height: 100%; background: #010409; }}
   #root {{ position: relative; width: 100%; height: 100%; }}
   #chart {{ width: 100%; height: 100%; }}
   #toolbar {{
@@ -90,14 +90,14 @@ _SKELETON_HTML = f"""
     display: flex;
     align-items: center;
     justify-content: center;
-    background: var(--btn-bg, #2A2A2A);
-    border: 1px solid var(--btn-border, #3A3A3A);
-    color: var(--btn-color, #E6E6E6);
+    background: var(--btn-bg, #21262D);
+    border: 1px solid var(--btn-border, #30363D);
+    color: var(--btn-color, #E6EDF3);
     cursor: pointer;
     padding: 0;
   }}
-  .tbtn:hover {{ background: var(--btn-hover, #272733); }}
-  .tbtn.active {{ background: var(--btn-active, #4F46E5); border-color: var(--btn-active, #4F46E5); color: #FFFFFF; }}
+  .tbtn:hover {{ background: var(--btn-hover, #161B22); }}
+  .tbtn.active {{ background: var(--btn-active, #1F6FEB); border-color: var(--btn-active, #1F6FEB); color: #FFFFFF; }}
   .tbtn svg {{ width: 16px; height: 16px; }}
 </style>
 </head>
@@ -150,6 +150,11 @@ class GraphWindow(FramelessWindowMixin, QWidget):
     ):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        # Same rounded, hairline-bordered frame as the main window -- see
+        # app.py for the full rationale (translucent window + a single
+        # opaque #windowFrame child that paints the rounded bg/border and
+        # leaves the corners transparent).
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         window_title = f"Graph — {title}" if title else "Graph"
         self.setWindowTitle(window_title)
         self.resize(900, 640 + BAR_HEIGHT + 26)
@@ -159,8 +164,18 @@ class GraphWindow(FramelessWindowMixin, QWidget):
         self._arrays = arrays
         self._loaded = False
 
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
+        shell = QVBoxLayout(self)
+        shell.setContentsMargins(0, 0, 0, 0)
+        shell.setSpacing(0)
+        self._frame = QWidget()
+        self._frame.setObjectName("windowFrame")
+        self._frame.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        shell.addWidget(self._frame)
+
+        outer = QVBoxLayout(self._frame)
+        # Inset by the border width so the frame's 1px border isn't
+        # painted over by the (opaque) title bar / web view.
+        outer.setContentsMargins(c.BORDER_WIDTH, c.BORDER_WIDTH, c.BORDER_WIDTH, c.BORDER_WIDTH)
         outer.setSpacing(0)
 
         self.title_bar = SimpleTitleBar(
@@ -169,6 +184,8 @@ class GraphWindow(FramelessWindowMixin, QWidget):
             on_minimize=self.showMinimized,
             on_toggle_maximize=self._toggle_maximize,
             on_close=self.close,
+            window_rounded=True,
+            surface_role="body_bg",
         )
         outer.addWidget(self.title_bar)
 
@@ -221,6 +238,22 @@ class GraphWindow(FramelessWindowMixin, QWidget):
 
     def _on_maximize_changed(self, maximized: bool) -> None:
         self.title_bar.set_maximized(maximized)
+        self._apply_frame_style()
+
+    def _apply_frame_style(self) -> None:
+        p = self._palette
+        if getattr(self, "_maximized", False):
+            self._frame.setStyleSheet(
+                f"#windowFrame {{ background-color: {p.body_bg}; border: none; border-radius: 0; }}"
+            )
+        else:
+            self._frame.setStyleSheet(
+                f"#windowFrame {{"
+                f" background-color: {p.body_bg};"
+                f" border: {c.BORDER_WIDTH}px solid {p.border};"
+                f" border-radius: {c.PANEL_RADIUS}px;"
+                f" }}"
+            )
 
     def _on_load_finished(self, ok: bool) -> None:
         self._loaded = ok
@@ -248,7 +281,13 @@ class GraphWindow(FramelessWindowMixin, QWidget):
         else:
             spec = build_plotly_spec(self._labels, self._config, self._arrays, self._palette)
         p = self._palette
+        # The chart's paper/plot area match the window frame (body_bg,
+        # #010409) rather than plotting's default base_bg -- the graph
+        # window is one solid surface, chrome and chart alike.
+        spec["layout"]["paper_bgcolor"] = p.body_bg
+        spec["layout"]["plot_bgcolor"] = p.body_bg
         script = (
+            f"document.body.style.background = {json.dumps(p.body_bg)};"
             f"Plotly.react('chart', {json.dumps(spec['data'])}, "
             f"{json.dumps(spec['layout'])}, {json.dumps(_PLOTLY_CONFIG)});"
             "var s = document.documentElement.style;"
@@ -264,9 +303,10 @@ class GraphWindow(FramelessWindowMixin, QWidget):
 
     def _apply_palette(self, palette: Palette) -> None:
         self._palette = palette
-        # header_bg, not base_bg: this is the window's own chrome color
-        # (matches App's frame / the title/status bar), the same way
-        # App itself is styled -- the actual plot area's background comes
-        # from build_plotly_spec's paper_bgcolor (base_bg) instead.
-        self.setStyleSheet(f"GraphWindow {{ background-color: {palette.header_bg}; }}")
+        # Everything visible is painted by #windowFrame (body_bg #010409
+        # -- the app's darkest surface) and its children; GraphWindow
+        # itself is transparent. The plot area's own background comes from
+        # build_plotly_spec's paper_bgcolor (base_bg) instead.
+        self.setStyleSheet("GraphWindow { background-color: transparent; }")
+        self._apply_frame_style()
         self._render()

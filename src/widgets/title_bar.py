@@ -27,6 +27,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QActionGroup, QKeySequence
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QMenuBar, QPushButton, QWidget
 
+import constants as c
 import icons
 from theme import Palette, ThemeManager
 
@@ -43,6 +44,9 @@ class _BaseTitleBar(QWidget):
         on_toggle_maximize: Callable[[], None],
         on_close: Callable[[], None],
         parent=None,
+        *,
+        window_rounded: bool = False,
+        surface_role: str = "window_bg",
     ):
         super().__init__(parent)
         self.setFixedHeight(BAR_HEIGHT)
@@ -51,6 +55,11 @@ class _BaseTitleBar(QWidget):
         self._palette: Palette = theme.palette
         self._maximized = False
         self._on_toggle_maximize = on_toggle_maximize
+        # Rounds its own top corners to meet the host window's rounded
+        # frame; ``surface_role`` names the Palette attribute for its
+        # background (so it matches whatever colour that frame uses).
+        self._window_rounded = window_rounded
+        self._surface_role = surface_role
 
         layout = QHBoxLayout(self)
         # 22px left margin, not some rounder number: measured to match the
@@ -93,6 +102,9 @@ class _BaseTitleBar(QWidget):
         self._maximized = maximized
         kind = icons.RESTORE if maximized else icons.MAXIMIZE
         self.max_button.setIcon(icons.icon(kind, self._palette.text, ICON_SIZE))
+        # Drop the rounded top corners while maximized so the bar sits
+        # flush in the screen's top corners.
+        self._apply_chrome_style()
 
     def _make_button(self, kind: str, callback, close: bool = False) -> QPushButton:
         btn = QPushButton()
@@ -119,13 +131,32 @@ class _BaseTitleBar(QWidget):
     def _apply_palette(self, palette: Palette) -> None:
         self._palette = palette
         self.title_label.setStyleSheet(f"color: {palette.subtext}; font-weight: 600; font-size: 10pt;")
+        self.set_maximized(self._maximized)  # re-applies the chrome stylesheet too
+
+    def _apply_chrome_style(self) -> None:
+        palette = self._palette
+        rounded = self._window_rounded and not self._maximized
+        # Nested one border-width inside the window frame's own radius so
+        # the two arcs sit flush.
+        radius = (c.PANEL_RADIUS - c.BORDER_WIDTH) if rounded else 0
+        # A rounded host window already draws a 1px outline around the
+        # whole thing (this bar included), so a border-bottom here would
+        # just be a redundant second line; a plain host window still needs
+        # it as the only separator from its content.
+        bottom = "" if self._window_rounded else f"border-bottom: 1px solid {palette.border};"
+        surface = getattr(palette, self._surface_role)
         # Bare class-name selector (matches how HierarchyTree/_NavPopover
         # etc. style themselves elsewhere) -- resolves to "TitleBar" or
         # "SimpleTitleBar" depending on the actual subclass, each getting
         # its own background rule without needing its own stylesheet call.
         self.setStyleSheet(
             f"""
-            {type(self).__name__} {{ background-color: {palette.header_bg}; }}
+            {type(self).__name__} {{
+                background-color: {surface};
+                {bottom}
+                border-top-left-radius: {radius}px;
+                border-top-right-radius: {radius}px;
+            }}
             QPushButton#titleButton {{ border: none; background: transparent; }}
             QPushButton#titleButton:hover {{ background-color: {palette.row_hover}; }}
             QPushButton#titleCloseButton {{ border: none; background: transparent; }}
@@ -133,7 +164,6 @@ class _BaseTitleBar(QWidget):
             {self._extra_stylesheet(palette)}
             """
         )
-        self.set_maximized(self._maximized)
 
 
 class SimpleTitleBar(_BaseTitleBar):
@@ -155,7 +185,11 @@ class TitleBar(_BaseTitleBar):
     ):
         self._app_title = title
         self._menu_callbacks = (on_open_file, on_set_appearance, on_close)
-        super().__init__(theme, title, on_minimize, on_toggle_maximize, on_close, parent)
+        # The main window has a rounded frame -- round the bar's top
+        # corners to match (see _BaseTitleBar._apply_chrome_style).
+        super().__init__(
+            theme, title, on_minimize, on_toggle_maximize, on_close, parent, window_rounded=True
+        )
 
     # -- menu bar ----------------------------------------------------------
 

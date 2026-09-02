@@ -19,6 +19,19 @@ INDEX_COL_WIDTH = 60
 MIN_COL_WIDTH = 90
 MAX_COL_WIDTH = 260
 
+# Shared corner radius + hairline border for the top-level chrome: the
+# frameless window itself and the two panels it frames (the left explorer
+# and the main content area). Matched to the "GitHub Dark Default" VS Code
+# theme's panel treatment -- a small radius with a 1px border in the
+# theme's own border color (see GRID_LINE_* below, which doubles as the
+# border color everywhere in the app).
+PANEL_RADIUS = 8
+BORDER_WIDTH = 1
+# Gap left between the two framed panels and the window's own outer
+# border, so each panel reads as a separate rounded card floating on the
+# window rather than a second border stacked against the frame's.
+WINDOW_PADDING = 8
+
 # Fonts to try, in order, before giving up and letting Qt pick its
 # platform default. Segoe UI / SF cover stock Windows/macOS; the rest are
 # common Linux desktop fallbacks.
@@ -67,54 +80,70 @@ COLUMN_PALETTE_LIGHT = [
     "#F6F0FA",
     "#EFFAFA",
 ]
+# Dark tints hug the panel surface (#010409 -- the explorer and content
+# panels share it), index-aligned with CHART_SERIES_DARK's hue families
+# (blue/green/orange/purple/teal) so a plotted series still echoes its
+# column's tint.
 COLUMN_PALETTE_DARK = [
-    "#242424",
-    "#20262E",
-    "#1E2A22",
-    "#2A2420",
-    "#26202C",
-    "#1D2828",
+    "#010409",
+    "#03080F",
+    "#020E09",
+    "#0E0804",
+    "#090510",
+    "#010E0D",
 ]
 
-# Text colors for header / body per appearance mode.
+# Text colors for header / body per appearance mode. Dark values are
+# lifted from the "GitHub Dark Default" VS Code theme.
 TEXT_LIGHT = "#1A1A1A"
-TEXT_DARK = "#E6E6E6"
+TEXT_DARK = "#E6EDF3"  # theme `foreground`
 SUBTEXT_LIGHT = "#6B6B6B"
-SUBTEXT_DARK = "#9A9A9A"
+SUBTEXT_DARK = "#7D8590"  # theme `descriptionForeground`
 
 HEADER_BG_LIGHT = "#E5E9F0"
-HEADER_BG_DARK = "#2B2B2B"
+HEADER_BG_DARK = "#010409"  # theme `sideBar.background` -- recessed chrome in the dialogs
+
+# An element raised *above* the panel surface: unselected tabs sit on it
+# implicitly, group-overview rows and table headers use it directly. The
+# panels themselves are the darkest surface (COLUMN_PALETTE_*[0]), so
+# "raised" is the lighter editor colour.
+RAISED_BG_LIGHT = "#E5E9F0"
+RAISED_BG_DARK = "#0D1117"
 
 GRID_LINE_LIGHT = "#DDE1E8"
-GRID_LINE_DARK = "#3A3A3A"
+GRID_LINE_DARK = "#30363D"  # theme border color (`*.border` everywhere)
 
 SELECTION_LIGHT = "#E6E4FB"
-SELECTION_DARK = "#37316B"
+SELECTION_DARK = "#343941"  # theme `list.activeSelectionBackground` (#6E768166) flattened onto the bg
 
 # Accent used for the active/interactive accents that aren't covered by
 # the CTk color theme itself (ttk selection, splitter drag feedback,
 # dataset-type icon tint).
 ACCENT_LIGHT = "#4F46E5"
-ACCENT_DARK = "#8B85F5"
+ACCENT_DARK = "#1F6FEB"  # theme `focusBorder` / `progressBar.background`
 
 ROW_HOVER_LIGHT = "#F1F1F6"
-ROW_HOVER_DARK = "#272733"
+ROW_HOVER_DARK = "#161B22"  # theme `editorWidget.background` -- the subtle surface lift
 
 SPLITTER_LIGHT = "#E3E5EA"
-SPLITTER_DARK = "#303030"
+SPLITTER_DARK = "#30363D"
 
 # Truncation/warning text color -- used both for the dataset table's
 # "showing first N of M flattened columns" notice and the graph window's
 # "showing first N of M rows" notice.
 WARN_COLOR_LIGHT = "#8A5A00"
-WARN_COLOR_DARK = "#E0A93B"
+WARN_COLOR_DARK = "#D29922"  # theme `editorWarning.foreground`
+
+# Non-fatal error text (status bar message slot, dialog error labels).
+ERROR_COLOR_LIGHT = "#C0392B"
+ERROR_COLOR_DARK = "#F85149"  # theme `errorForeground`
 
 # Vivid line/marker colors for the graph window, index-aligned with
 # COLUMN_PALETTE_* so a plotted series' color still matches the hue family
 # of its column's tint in the table -- but NOT the same colors: those are
 # deliberately near-invisible tints meant to sit almost flush with the
-# table's own background (e.g. dark index 1 "#20262E" vs body_bg
-# "#242424"), which made an actual plotted line nearly invisible against
+# table's own background (e.g. dark index 1 "#03080F" vs body_bg
+# "#010409"), which made an actual plotted line nearly invisible against
 # the chart background when reused directly as a line color.
 CHART_SERIES_LIGHT = [
     ACCENT_LIGHT,  # index 0 (the default/unstyled column) -- no real hue of its own
@@ -126,9 +155,9 @@ CHART_SERIES_LIGHT = [
 ]
 CHART_SERIES_DARK = [
     ACCENT_DARK,
-    "#5B9BFF",  # blue
-    "#4ADE80",  # green
-    "#FB923C",  # orange
-    "#C084FC",  # purple
-    "#2DD4BF",  # teal
+    "#58A6FF",  # blue   -- theme `terminal.ansiBlue`
+    "#3FB950",  # green  -- theme `terminal.ansiGreen`
+    "#D29922",  # orange -- theme `terminal.ansiYellow`
+    "#BC8CFF",  # purple -- theme `terminal.ansiMagenta`
+    "#39C5CF",  # teal   -- theme `terminal.ansiCyan`
 ]

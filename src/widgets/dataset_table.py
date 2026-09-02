@@ -414,16 +414,10 @@ class DatasetTableView(QWidget):
         self._graph_windows: list = []
 
         outer = QVBoxLayout(self)
-        # Top margin matches HierarchyTree's own top layout margin (see
-        # hierarchy_tree.py) so the table's content -- its column header
-        # row -- lines up flush with the sidebar's top row, the same way
-        # the two panes already share a left/right/bottom rhythm. This
-        # pane used to reserve its own title/subtitle row above the table
-        # (and, before that, a row of Top/End/Row/Go controls); both have
-        # since moved out -- the controls to the corner popover, the
-        # title/subtitle to the status bar (see context_changed above) --
-        # so nothing but the table itself needs to live in this layout.
-        outer.setContentsMargins(16, 10, 16, 16)
+        # Only a top margin -- the table runs flush to the content
+        # panel's left, right and bottom edges. The top gap keeps the
+        # column-header row clear of the tab pills above it.
+        outer.setContentsMargins(0, 10, 0, 0)
         outer.setSpacing(0)
 
         self.table = _DatasetTable()
@@ -743,7 +737,7 @@ class DatasetTableView(QWidget):
                 selection-color: {palette.text};
             }}
             QHeaderView::section {{
-                background-color: {palette.header_bg};
+                background-color: {palette.raised_bg};
                 color: {palette.subtext};
                 border: none;
                 padding: 4px 8px;

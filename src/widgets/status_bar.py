@@ -43,7 +43,7 @@ class StatusBar(QWidget):
         self.context_label.setText(f"    ·    {text}" if text else "")
 
     def set_message(self, text: str, is_error: bool = False) -> None:
-        color = "#FF6B6B" if is_error else self._palette.subtext
+        color = self._palette.error if is_error else self._palette.subtext
         self.message_label.setStyleSheet(f"color: {color};")
         self.message_label.setText(text)
         if text:

@@ -53,6 +53,9 @@ class GroupPanel(QWidget):
         self._on_child_double_activate = on_child_double_activate
         self._palette: Palette = theme.palette
         self._last: Optional[tuple[H5Model, NodeInfo]] = None
+        # Paint the panel surface ourselves so the QScrollArea's default
+        # Base-role fill doesn't show the wrong colour behind the rows.
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(18, 16, 18, 14)
@@ -169,8 +172,11 @@ class GroupPanel(QWidget):
         self.subtitle_label.setStyleSheet(f"color: {palette.subtext}; font-size: 10pt;")
         self.setStyleSheet(
             f"""
+            GroupPanel {{ background-color: {palette.body_bg}; }}
+            QScrollArea {{ background: transparent; border: none; }}
+            QScrollArea > QWidget > QWidget {{ background: transparent; }}
             QFrame#childRow {{
-                background-color: {palette.header_bg};
+                background-color: {palette.raised_bg};
                 border-radius: 8px;
             }}
             QFrame#childRow:hover {{
